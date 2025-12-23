@@ -13,11 +13,23 @@ The application must be able to recommend items, skill gems, and passive skill t
 The application must provide a user-friendly interface for players to interact with the recommendations and make informed decisions about their character development.
 
 ### Technical Requirements
+
 The application is to be developed as a web application accessible via modern web browsers.
-The frontend should be based on Vue.js.
-The backend should be based on Spring Boot.
 The application should leverage Spring AI (https://spring.io/ai) where applicable to enhance recommendation quality.
 We want to avoid duplicating existing open-source codebases and instead build upon them where possible.
+
+The frontend should be based on Vue.js.
+The frontend should be tested using Cypress for end-to-end testing.
+
+The backend should be based on Spring Boot.
+The backend should be tested using JUnit and Mockito.
+
+### Code Conventions
+Avoid source code files longer than 200 lines. 
+Modularize code into small, single-responsibility components or classes.
+Follow standard naming conventions for variables, functions, classes, and files.
+Business logic must be covered by unit tests with at least 80% code coverage. 
+Features must be covered by end-to-end tests.
 
 ### Constraints
 The application must be developed using open-source technologies and frameworks.
