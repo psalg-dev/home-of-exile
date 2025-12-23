@@ -5,7 +5,7 @@ describe('PoB import', () => {
       body: {
         character: { class: 'Witch', ascendancy: 'Occultist', level: 92 },
         mainSkill: { name: 'Freezing Pulse', group: 'Main', supportGems: ['Spell Echo'], confidence: 'HIGH' },
-        equipment: [{ slot: 'Weapon', name: 'Void Sceptre', rarity: 'RARE', raw: '...' }],
+        equipment: [{ slot: 'Weapon Slot', name: 'Void Sceptre', rarity: 'RARE', raw: '...' }],
         raw: { warnings: [], source: 'POB_EXPORT_CODE' }
       }
     }).as('import')
@@ -19,7 +19,29 @@ describe('PoB import', () => {
 
     cy.get('[data-cy=pob-character]').should('contain.text', 'Witch')
     cy.get('[data-cy=pob-main-skill]').should('contain.text', 'Freezing Pulse')
-    cy.get('[data-cy=pob-equipment]').should('contain.text', 'Weapon')
+    cy.get('[data-cy=pob-equipment]').should('contain.text', 'Weapon Slot')
+  })
+
+  it('real PoB import categorizes equipment slots (cws-witch)', () => {
+    // This test requires the backend to be running at http://localhost:8080 (Vite proxies /api).
+    cy.intercept('POST', '/api/import/pob').as('import')
+
+    cy.visit('/')
+
+    cy.readFile('../backend/src/test/resources/cws-witch.txt', 'utf8').then((exportCode) => {
+      cy.get('[data-cy=pob-export-code]')
+        .invoke('val', exportCode)
+        .trigger('input')
+    })
+
+    cy.get('[data-cy=pob-import]').click()
+    cy.wait('@import').its('response.statusCode').should('eq', 200)
+
+    cy.get('[data-cy=pob-equipment]').should('not.contain.text', 'Unknown slot')
+    cy.get('[data-cy=pob-equipment]').should('contain.text', 'Jewel Slot')
+    cy.get('[data-cy=pob-equipment]').should('contain.text', 'Amulet Slot')
+    cy.get('[data-cy=pob-equipment]').should('contain.text', 'Flask Slot')
+    cy.get('[data-cy=pob-equipment]').should('not.contain.text', 'Flask Slot (')
   })
 
   it('error path shows message and preserves textarea', () => {

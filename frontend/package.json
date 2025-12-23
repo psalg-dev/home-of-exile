@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "cy:open": "cypress open",
     "cy:run": "cypress run",
+    "all": "npm run dev && cd ../backend && mvn spring-boot:run",
     "e2e": "start-server-and-test dev http://localhost:5173 cy:run"
   },
   "dependencies": {
