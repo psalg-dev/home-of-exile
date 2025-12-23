@@ -79,6 +79,13 @@ Opal Sceptre
     assertTrue(slots.contains("Amulet Slot"), "expected Amulet Slot");
     assertTrue(slots.contains("Flask Slot"), "expected Flask Slot");
 
+    assertEquals("Detonate Dead", parsed.mainSkill().name(), "expected main skill to be Detonate Dead for cws-witch");
+
+    assertTrue(
+      parsed.equipment().stream().anyMatch(i -> i.explicitMods() != null && !i.explicitMods().isEmpty()),
+      "expected at least one item to have explicit mods extracted"
+    );
+
     assertTrue(parsed.equipment().stream().noneMatch(i -> i.slot() == null || i.slot().isBlank()), "expected no blank slots");
     assertTrue(parsed.equipment().stream().noneMatch(i -> i.slot().contains("Unknown")), "expected no Unknown slot labels");
     assertTrue(parsed.equipment().stream().noneMatch(i -> i.slot().startsWith("Flask Slot") && i.slot().contains("(")), "expected Flask Slot without index");

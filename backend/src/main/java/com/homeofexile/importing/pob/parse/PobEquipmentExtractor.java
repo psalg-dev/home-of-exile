@@ -17,10 +17,12 @@ import java.util.regex.Pattern;
 
 public class PobEquipmentExtractor {
   private final ItemTextParser itemTextParser;
+  private final ItemModsParser itemModsParser;
   private static final Pattern INDEXED_SLOT_PATTERN = Pattern.compile("^(.+?)\\s+(\\d+)(.*)$");
 
-  public PobEquipmentExtractor(ItemTextParser itemTextParser) {
+  public PobEquipmentExtractor(ItemTextParser itemTextParser, ItemModsParser itemModsParser) {
     this.itemTextParser = itemTextParser;
+    this.itemModsParser = itemModsParser;
   }
 
   public List<ParsedEquipmentItem> extract(Document doc) {
@@ -47,6 +49,8 @@ public class PobEquipmentExtractor {
       String rarity = itemTextParser.parseRarity(raw).orElse(null);
       String name = itemTextParser.parseName(raw).orElse(null);
 
+      ItemModsParser.ItemMods mods = itemModsParser.parse(raw);
+
       boolean looksLikeJewel = looksLikeJewelItem(raw);
       if (TextSupport.isBlank(slot) && looksLikeJewel) {
         slot = "Jewel";
@@ -68,7 +72,11 @@ public class PobEquipmentExtractor {
             TextSupport.nullIfBlank(slot),
             TextSupport.nullIfBlank(name),
             TextSupport.nullIfBlank(rarity),
-            raw.isBlank() ? null : raw
+            raw.isBlank() ? null : raw,
+            mods.implicitMods(),
+            mods.prefixMods(),
+            mods.suffixMods(),
+            mods.explicitMods()
         ));
       }
     }

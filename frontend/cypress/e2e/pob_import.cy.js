@@ -5,7 +5,16 @@ describe('PoB import', () => {
       body: {
         character: { class: 'Witch', ascendancy: 'Occultist', level: 92 },
         mainSkill: { name: 'Freezing Pulse', group: 'Main', supportGems: ['Spell Echo'], confidence: 'HIGH' },
-        equipment: [{ slot: 'Weapon Slot', name: 'Void Sceptre', rarity: 'RARE', raw: '...' }],
+        equipment: [{
+          slot: 'Weapon Slot',
+          name: 'Void Sceptre',
+          rarity: 'RARE',
+          raw: '...',
+          implicitMods: [],
+          prefixMods: [],
+          suffixMods: [],
+          explicitMods: ['+10% to Cold Resistance']
+        }],
         raw: { warnings: [], source: 'POB_EXPORT_CODE' }
       }
     }).as('import')
@@ -20,6 +29,7 @@ describe('PoB import', () => {
     cy.get('[data-cy=pob-character]').should('contain.text', 'Witch')
     cy.get('[data-cy=pob-main-skill]').should('contain.text', 'Freezing Pulse')
     cy.get('[data-cy=pob-equipment]').should('contain.text', 'Weapon Slot')
+    cy.get('[data-cy=pob-equipment-explicit]').should('contain.text', 'Cold Resistance')
   })
 
   it('real PoB import categorizes equipment slots (cws-witch)', () => {
@@ -37,11 +47,19 @@ describe('PoB import', () => {
     cy.get('[data-cy=pob-import]').click()
     cy.wait('@import').its('response.statusCode').should('eq', 200)
 
+    cy.get('[data-cy=pob-main-skill]').should('contain.text', 'Detonate Dead')
+
     cy.get('[data-cy=pob-equipment]').should('not.contain.text', 'Unknown slot')
     cy.get('[data-cy=pob-equipment]').should('contain.text', 'Jewel Slot')
     cy.get('[data-cy=pob-equipment]').should('contain.text', 'Amulet Slot')
     cy.get('[data-cy=pob-equipment]').should('contain.text', 'Flask Slot')
     cy.get('[data-cy=pob-equipment]').should('not.contain.text', 'Flask Slot (')
+
+    // Item modifiers should be extracted and rendered alongside at least some equipment items.
+    cy.get('[data-cy=pob-equipment-explicit]').should('have.length.greaterThan', 0)
+    cy.get('[data-cy=pob-equipment-explicit]')
+      .invoke('text')
+      .should('match', /[+%]/)
   })
 
   it('error path shows message and preserves textarea', () => {

@@ -18,11 +18,69 @@ import static com.homeofexile.importing.pob.parse.SkillModels.SkillGroup;
 public class PobSkillsExtractor {
 
   public List<SkillGroup> extract(Document doc) {
+    List<SkillGroup> skillSets = fromSkillSets(doc);
+    if (!skillSets.isEmpty()) {
+      return skillSets;
+    }
+
     List<SkillGroup> groups = fromGroups(doc);
     if (!groups.isEmpty()) {
       return groups;
     }
     return fromSkills(doc);
+  }
+
+  private List<SkillGroup> fromSkillSets(Document doc) {
+    NodeList skillsNodes = doc.getElementsByTagName("Skills");
+    if (skillsNodes.getLength() == 0 || !(skillsNodes.item(0) instanceof Element skillsEl)) {
+      return List.of();
+    }
+
+    String activeSetId = TextSupport.nullIfBlank(skillsEl.getAttribute("activeSkillSet"));
+
+    Element selectedSet = null;
+    NodeList sets = skillsEl.getElementsByTagName("SkillSet");
+    for (int i = 0; i < sets.getLength(); i++) {
+      if (!(sets.item(i) instanceof Element setEl)) {
+        continue;
+      }
+      if (activeSetId != null && activeSetId.equals(setEl.getAttribute("id"))) {
+        selectedSet = setEl;
+        break;
+      }
+      if (selectedSet == null) {
+        selectedSet = setEl;
+      }
+    }
+
+    if (selectedSet == null) {
+      return List.of();
+    }
+
+    List<SkillGroup> groups = new ArrayList<>();
+    int index = 0;
+    NodeList skills = selectedSet.getElementsByTagName("Skill");
+    for (int i = 0; i < skills.getLength(); i++) {
+      if (!(skills.item(i) instanceof Element skillEl)) {
+        continue;
+      }
+
+      boolean enabled = parseBoolean(skillEl.getAttribute("enabled")).orElse(true);
+      List<Gem> gems = extractGems(skillEl);
+      if (gems.isEmpty()) {
+        continue;
+      }
+
+      String label = TextSupport.firstNonBlank(skillEl.getAttribute("label"), skillEl.getAttribute("name"));
+      if (TextSupport.isBlank(label)) {
+        // PoB often leaves Skill labels blank; use the first active gem name as the group label.
+        label = gems.stream().filter(g -> !g.support()).map(Gem::name).filter(n -> n != null && !n.isBlank()).findFirst().orElse(null);
+      }
+
+      groups.add(new SkillGroup(++index, TextSupport.nullIfBlank(label), enabled, gems));
+    }
+
+    return groups;
   }
 
   private List<SkillGroup> fromGroups(Document doc) {
@@ -61,8 +119,14 @@ public class PobSkillsExtractor {
       Node node = children.item(i);
       if (node.getNodeType() == Node.ELEMENT_NODE) {
         Element el = (Element) node;
-        String name = TextSupport.firstNonBlank(el.getAttribute("name"), el.getAttribute("skillName"));
-        boolean support = parseBoolean(el.getAttribute("support")).orElse(false);
+        boolean enabled = parseBoolean(el.getAttribute("enabled")).orElse(true);
+        if (!enabled) {
+          continue;
+        }
+
+        String name = TextSupport.firstNonBlank(el.getAttribute("name"), el.getAttribute("skillName"), el.getAttribute("nameSpec"));
+
+        boolean support = parseBoolean(el.getAttribute("support")).orElseGet(() -> inferSupport(el));
         gems.add(new Gem(TextSupport.nullIfBlank(name), support));
       }
     }
@@ -76,13 +140,29 @@ public class PobSkillsExtractor {
       Node node = skills.item(i);
       if (node.getNodeType() == Node.ELEMENT_NODE) {
         Element el = (Element) node;
-        String name = TextSupport.firstNonBlank(el.getAttribute("name"), el.getAttribute("skillName"));
-        boolean support = parseBoolean(el.getAttribute("support")).orElse(false);
+        boolean enabled = parseBoolean(el.getAttribute("enabled")).orElse(true);
+        if (!enabled) {
+          continue;
+        }
+        String name = TextSupport.firstNonBlank(el.getAttribute("name"), el.getAttribute("skillName"), el.getAttribute("nameSpec"));
+        boolean support = parseBoolean(el.getAttribute("support")).orElseGet(() -> inferSupport(el));
         gems.add(new Gem(TextSupport.nullIfBlank(name), support));
       }
     }
 
     return gems;
+  }
+
+  private boolean inferSupport(Element gemEl) {
+    if (gemEl == null) {
+      return false;
+    }
+    String gemId = TextSupport.nullIfBlank(gemEl.getAttribute("gemId"));
+    if (gemId != null && gemId.toLowerCase(Locale.ROOT).contains("supportgem")) {
+      return true;
+    }
+    String skillId = TextSupport.nullIfBlank(gemEl.getAttribute("skillId"));
+    return skillId != null && skillId.toLowerCase(Locale.ROOT).startsWith("support");
   }
 
   private Optional<Boolean> parseBoolean(String s) {

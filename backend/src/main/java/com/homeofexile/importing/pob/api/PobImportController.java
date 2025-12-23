@@ -35,7 +35,16 @@ public class PobImportController {
     ParsedMainSkill mainSkill = parsed.mainSkill();
 
     List<EquipmentItemDto> equipment = parsed.equipment().stream()
-        .map(i -> new EquipmentItemDto(i.slot(), i.name(), i.rarity(), i.raw()))
+      .map(i -> new EquipmentItemDto(
+        i.slot(),
+        i.name(),
+        i.rarity(),
+        i.raw(),
+        i.implicitMods(),
+        i.prefixMods(),
+        i.suffixMods(),
+        i.explicitMods()
+      ))
         .toList();
 
     return new PobImportResponse(

@@ -30,9 +30,37 @@
       <div>
         <strong>Equipment</strong>
         <ul data-cy="pob-equipment" style="margin: 6px 0 0; padding-left: 18px;">
-          <li v-for="(item, idx) in (result?.equipment || [])" :key="idx">
-            <span>{{ item.slot || 'Unknown slot' }}:</span>
-            <span> {{ item.name || '—' }}</span>
+          <li v-for="(item, idx) in (result?.equipment || [])" :key="idx" data-cy="pob-equipment-item">
+            <div>
+              <span>{{ item.slot || 'Unknown slot' }}:</span>
+              <span> {{ item.name || '—' }}</span>
+            </div>
+
+            <div style="margin: 4px 0 10px 12px;">
+              <div data-cy="pob-equipment-implicit">
+                Implicits:
+                <span v-if="(item.implicitMods || []).length">{{ item.implicitMods.join(' • ') }}</span>
+                <span v-else>—</span>
+              </div>
+
+              <div data-cy="pob-equipment-prefixes">
+                Prefixes:
+                <span v-if="(item.prefixMods || []).length">{{ item.prefixMods.join(' • ') }}</span>
+                <span v-else>—</span>
+              </div>
+
+              <div data-cy="pob-equipment-suffixes">
+                Suffixes:
+                <span v-if="(item.suffixMods || []).length">{{ item.suffixMods.join(' • ') }}</span>
+                <span v-else>—</span>
+              </div>
+
+              <div data-cy="pob-equipment-explicit">
+                Explicit:
+                <span v-if="(item.explicitMods || []).length">{{ item.explicitMods.join(' • ') }}</span>
+                <span v-else>—</span>
+              </div>
+            </div>
           </li>
           <li v-if="!(result?.equipment || []).length">—</li>
         </ul>
