@@ -1,6 +1,7 @@
 package com.homeofexile.importing.pob;
 
 import com.homeofexile.importing.pob.parse.ItemTextParser;
+import com.homeofexile.importing.pob.parse.ItemModsParser;
 import com.homeofexile.importing.pob.parse.PobCharacterExtractor;
 import com.homeofexile.importing.pob.parse.PobClassNormalizer;
 import com.homeofexile.importing.pob.parse.PobEquipmentExtractor;
@@ -31,7 +32,7 @@ public class PobXmlParser {
   public PobXmlParser() {
     PobClassNormalizer classNormalizer = new PobClassNormalizer();
     this.characterExtractor = new PobCharacterExtractor(classNormalizer);
-    this.equipmentExtractor = new PobEquipmentExtractor(new ItemTextParser());
+    this.equipmentExtractor = new PobEquipmentExtractor(new ItemTextParser(), new ItemModsParser());
     this.skillsExtractor = new PobSkillsExtractor();
     this.mainSkillSelector = new PobMainSkillSelector();
   }
