@@ -169,7 +169,7 @@ class LuaJITWorker:
                     self._process.stdout.readline(),  # type: ignore[union-attr]
                     timeout=remaining,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
 
             if not raw:
@@ -233,7 +233,7 @@ class LuaJITWorker:
 
         try:
             await asyncio.wait_for(proc.wait(), timeout=3.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
         except Exception:
             pass
@@ -286,7 +286,7 @@ class LuaJITWorker:
                 self._process.stdout.readline(),
                 timeout=_RPC_TIMEOUT,
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             self._ready = False
             raise LuaJITWorkerError(
                 f"Worker {self.worker_id}: RPC timeout on '{action}'"
@@ -480,6 +480,8 @@ class LuaJITPoolManager:
         # Queue holds indices into self._workers for idle workers
         self._idle: asyncio.Queue[int] = asyncio.Queue()
         self._available: bool = False
+        # Keep strong references to fire-and-forget restart tasks
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Properties
@@ -579,7 +581,7 @@ class LuaJITPoolManager:
                 self._idle.get(),
                 timeout=_RPC_TIMEOUT,
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise LuaJITWorkerError(
                 "No idle LuaJIT worker available within "
                 f"{_RPC_TIMEOUT:.0f}s timeout"
@@ -641,7 +643,9 @@ class LuaJITPoolManager:
             return result
         except LuaJITWorkerError:
             # Fire-and-forget restart so the worker index stays valid
-            asyncio.ensure_future(self._restart_worker(idx))
+            task = asyncio.create_task(self._restart_worker(idx))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             raise
         finally:
             self._release(idx)
@@ -677,7 +681,9 @@ class LuaJITPoolManager:
             )
             return result
         except LuaJITWorkerError:
-            asyncio.ensure_future(self._restart_worker(idx))
+            task = asyncio.create_task(self._restart_worker(idx))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             raise
         finally:
             self._release(idx)

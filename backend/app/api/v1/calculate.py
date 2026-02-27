@@ -16,10 +16,8 @@ import zlib
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
 
 from app.models.calculation import (
-    BatchSwapResult,
     CalculateRequest,
     CalculateSwapBatchRequest,
     CalculateSwapRequest,
@@ -229,11 +227,11 @@ async def calculate_swap_batch(
     raw_results = await pool.calculate_swap_batch(xml, swaps)
 
     output: list[dict[str, object]] = []
-    for i, (raw, swap_spec) in enumerate(zip(raw_results, body.swaps)):
+    for _i, (raw, swap_spec) in enumerate(zip(raw_results, body.swaps, strict=True)):
         if isinstance(raw, dict) and "error" in raw and len(raw) == 1:
             output.append({"slot": swap_spec.slot, "error": raw["error"]})
         else:
-            raw_dict: dict[str, Any] = raw  # noqa: PGH003
+            raw_dict: dict[str, Any] = raw
             item_info = raw_dict.get("item") or {}
             item_name = str(item_info.get("name", ""))
             swap_result = SwapResult.from_swap_data(

@@ -11,7 +11,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -57,7 +56,7 @@ class SwapItem(BaseModel):
         description=(
             "Equipment slot name, e.g. 'Helmet', 'Body Armour', "
             "'Weapon 1', 'Ring', 'Ring 2', 'Amulet', 'Belt', "
-            "'Gloves', 'Boots', 'Flask 1'–'Flask 5'."
+            "'Gloves', 'Boots', 'Flask 1'-'Flask 5'."
         )
     )
     item_text: str = Field(
@@ -157,7 +156,7 @@ class CalculationResult(BaseModel):
     )
 
     @classmethod
-    def from_pob_stats(cls, stats: dict[str, Any]) -> "CalculationResult":
+    def from_pob_stats(cls, stats: dict[str, Any]) -> CalculationResult:
         """Construct a CalculationResult from a raw PoB stats dict.
 
         The PoB engine may return any subset of stat keys; missing keys
@@ -226,7 +225,7 @@ class SwapResult(BaseModel):
         item_name: str,
         baseline_stats: dict[str, Any],
         modified_stats: dict[str, Any],
-    ) -> "SwapResult":
+    ) -> SwapResult:
         """Build a SwapResult from raw PoB stats dicts.
 
         Args:
