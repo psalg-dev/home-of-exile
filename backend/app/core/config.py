@@ -25,8 +25,12 @@ class Settings(BaseSettings):
     # RePoE data directory (relative to the backend/ directory)
     repoe_data_dir: str = "../data/repoe"
 
-    # LuaJIT pool size (used in later milestones)
+    # LuaJIT pool
     luajit_pool_size: int = 2
+    # Path to the PoB src/ directory containing HeadlessWrapper.lua
+    pob_src_dir: str = "/pob/src"
+    # LuaJIT binary command
+    luajit_cmd: str = "luajit"
 
 
 # Singleton settings instance
