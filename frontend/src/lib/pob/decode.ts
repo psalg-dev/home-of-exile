@@ -6,16 +6,26 @@ import { PobDecodeError } from './types';
  *
  * PoB codes are URL-safe base64-encoded, zlib-compressed XML.
  * Steps:
- *   1. Normalise URL-safe base64 (replace `-`→`+`, `_`→`/`, pad with `=`)
- *   2. Decode with atob() → Uint8Array → pako.inflate() → UTF-8 string
+ *   1. Strip any markdown code-block fencing (```plaintext ... ``` or ``` ... ```)
+ *   2. Strip all internal whitespace (newlines, spaces, tabs) from the code
+ *   3. Normalise URL-safe base64 (replace `-`→`+`, `_`→`/`, pad with `=`)
+ *   4. Decode with atob() → Uint8Array → pako.inflate() → UTF-8 string
  *
- * @param code - The PoB export code string (URL-safe base64)
+ * @param code - The PoB export code string (URL-safe base64), optionally
+ *   wrapped in a markdown code fence block.
  * @returns Decompressed XML string
  * @throws {PobDecodeError} If the code is empty, not valid base64, or
  *   cannot be decompressed
  */
 export function decodePobCode(code: string): string {
-  const trimmed = code.trim();
+  // Step 0: strip markdown code fences, e.g. ```plaintext\n...\n```
+  // Handles optional language identifier after the opening fence.
+  const fenceMatch = code.match(/^`{3}[a-z]*\s*([\s\S]*?)\s*`{3}$/);
+  const extracted = fenceMatch ? fenceMatch[1] : code;
+
+  // Remove all internal whitespace (newlines, spaces, tabs that users may
+  // inadvertently include when copying a PoB code from a text file).
+  const trimmed = extracted.replace(/\s+/g, '');
 
   if (!trimmed) {
     throw new PobDecodeError('Invalid PoB code: code is empty');
@@ -42,7 +52,7 @@ export function decodePobCode(code: string): string {
     bytes[i] = binaryString.charCodeAt(i);
   }
 
-  // Step 3: Inflate (decompress)
+  // Step 3: Inflate (decompress zlib stream)
   let decompressed: Uint8Array;
   try {
     decompressed = inflate(bytes);
@@ -50,7 +60,7 @@ export function decodePobCode(code: string): string {
     throw new PobDecodeError('Invalid PoB code: decompression failed');
   }
 
-  // Step 4: Decode UTF-8
+  // Step 4: Decode UTF-8 bytes to string
   try {
     return new TextDecoder('utf-8').decode(decompressed);
   } catch {

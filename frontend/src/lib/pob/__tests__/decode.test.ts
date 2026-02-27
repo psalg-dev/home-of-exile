@@ -3,8 +3,11 @@
  *
  * Tests the round-trip decode of a known PoB code fixture, ensuring that
  * URL-safe base64 normalisation and zlib decompression work correctly.
+ * Also tests stripping of markdown code-fence wrappers and internal whitespace.
  */
 
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { deflate } from 'pako';
 import { decodePobCode } from '../decode';
 import { PobDecodeError } from '../types';
@@ -93,5 +96,49 @@ describe('decodePobCode', () => {
   it('throws PobDecodeError for valid base64 that is not zlib-compressed data', () => {
     // "hello world" in base64 - valid b64 but not zlib
     expect(() => decodePobCode('aGVsbG8gd29ybGQ=')).toThrow(PobDecodeError);
+  });
+});
+
+describe('decodePobCode – markdown fence stripping', () => {
+  it('decodes a code wrapped in ```plaintext ... ``` fences', () => {
+    const code = encodeAsPobCode(FIXTURE_XML);
+    const fenced = `\`\`\`plaintext\n${code}\n\`\`\``;
+    const result = decodePobCode(fenced);
+    expect(result).toContain('<PathOfBuilding>');
+  });
+
+  it('decodes a code wrapped in plain ``` ... ``` fences (no language tag)', () => {
+    const code = encodeAsPobCode(FIXTURE_XML);
+    const fenced = `\`\`\`\n${code}\n\`\`\``;
+    const result = decodePobCode(fenced);
+    expect(result).toContain('<PathOfBuilding>');
+  });
+
+  it('decodes a code that contains internal newlines/whitespace', () => {
+    const code = encodeAsPobCode(FIXTURE_XML);
+    // Introduce random line breaks inside the code (as if copied from a text editor)
+    const withBreaks = code.slice(0, 80) + '\n' + code.slice(80, 160) + '\n  ' + code.slice(160);
+    const result = decodePobCode(withBreaks);
+    expect(result).toContain('<PathOfBuilding>');
+  });
+
+  it('throws PobDecodeError for a fenced block containing only whitespace', () => {
+    expect(() => decodePobCode('```plaintext\n   \n```')).toThrow(PobDecodeError);
+    expect(() => decodePobCode('```plaintext\n   \n```')).toThrow('Invalid PoB code: code is empty');
+  });
+});
+
+describe('decodePobCode – cws-dd real fixture', () => {
+  /**
+   * Reads the cws-dd pob.txt fixture from the examples directory and verifies
+   * that decodePobCode can handle it end-to-end including the markdown fence.
+   */
+  it('decodes the cws-dd pob.txt keeper fixture into valid PoB XML', () => {
+    // Resolve path relative to the repository root (five levels above __tests__)
+    const fixturePath = resolve(__dirname, '../../../../../examples/keepers/cws-dd/pob.txt');
+    const raw = readFileSync(fixturePath, 'utf-8');
+    const result = decodePobCode(raw);
+    expect(result).toContain('<PathOfBuilding>');
+    expect(result).toContain('</PathOfBuilding>');
   });
 });
