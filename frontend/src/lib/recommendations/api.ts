@@ -67,7 +67,7 @@ function serializeBuild(
   itemsObj?: Record<string, Item>,
 ): Record<string, unknown> {
   // Items may come from the Map or from the pre-serialised sessionStorage obj.
-  let serializedItems: Record<string, Record<string, unknown>> = {};
+  const serializedItems: Record<string, Record<string, unknown>> = {};
   if (itemsObj) {
     for (const [slot, item] of Object.entries(itemsObj)) {
       serializedItems[slot] = serializeItem(item);

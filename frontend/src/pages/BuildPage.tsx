@@ -1,8 +1,30 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { BuildData, Item } from '@/lib/pob/types';
 import type { Recommendation, CriticalIssue, RecommendResponse } from '@/lib/recommendations/types';
 import { fetchRecommendations } from '@/lib/recommendations/api';
+
+// ---------------------------------------------------------------------------
+// Recommendation state machine — avoids calling setState synchronously
+// inside useEffect (react-hooks/set-state-in-effect).
+// ---------------------------------------------------------------------------
+
+type RecState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: RecommendResponse }
+  | { status: 'error'; error: string };
+
+type RecAction =
+  | { type: 'success'; data: RecommendResponse }
+  | { type: 'error'; error: string };
+
+function recReducer(_state: RecState, action: RecAction): RecState {
+  switch (action.type) {
+    case 'success': return { status: 'success', data: action.data };
+    case 'error': return { status: 'error', error: action.error };
+  }
+}
 
 /**
  * BuildPage — displays the parsed build, critical issues, and ranked upgrade
@@ -30,9 +52,16 @@ export default function BuildPage() {
     }
   });
 
-  const [recResponse, setRecResponse] = useState<RecommendResponse | null>(null);
-  const [isLoadingRec, setIsLoadingRec] = useState(false);
-  const [recError, setRecError] = useState<string | null>(null);
+  /**
+   * Initialise to 'loading' immediately if a pobCode is available —
+   * this avoids calling setState synchronously inside the effect
+   * (which would violate react-hooks/set-state-in-effect).
+   */
+  const [recState, dispatchRec] = useReducer(
+    recReducer,
+    undefined,
+    (): RecState => (sessionStorage.getItem('pobCode') ? { status: 'loading' } : { status: 'idle' }),
+  );
 
   useEffect(() => {
     if (!buildData) return;
@@ -40,17 +69,18 @@ export default function BuildPage() {
     const pobCode = sessionStorage.getItem('pobCode') ?? '';
     if (!pobCode) return;
 
-    setIsLoadingRec(true);
-    setRecError(null);
-
     fetchRecommendations(buildData, pobCode, itemsObj)
-      .then(setRecResponse)
+      .then(data => dispatchRec({ type: 'success', data }))
       .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        setRecError(msg);
-      })
-      .finally(() => setIsLoadingRec(false));
+        const error = err instanceof Error ? err.message : 'Unknown error';
+        dispatchRec({ type: 'error', error });
+      });
   }, [buildData, itemsObj]);
+
+  // Derived values for JSX
+  const isLoadingRec = recState.status === 'loading';
+  const recError = recState.status === 'error' ? recState.error : null;
+  const recResponse = recState.status === 'success' ? recState.data : null;
 
   if (!buildData) {
     return (

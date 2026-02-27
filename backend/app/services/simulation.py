@@ -270,7 +270,7 @@ def _expected_life(level: int) -> int:
     """Return the heuristic minimum expected life pool for a given level.
 
     Args:
-        level: Character level (1–100).
+        level: Character level (1-100).
 
     Returns:
         Expected minimum life value.
@@ -353,7 +353,7 @@ def _build_gem_text(candidate: CandidateGem) -> str:
     """
     gem_type = "Support Skill Gem" if candidate.is_support else "Active Skill Gem"
     lines = [
-        f"Rarity: Gem",
+        "Rarity: Gem",
         candidate.name,
         "--------",
         f"Gem Tags: {gem_type}",
@@ -408,11 +408,11 @@ async def simulate_upgrades(
 
     for gem_group in gem_candidates:
         # Only simulate support gem swaps (skill alternatives need a different
-        # approach — include top-3 support candidates for now).
+        # approach -- include top-3 support candidates for now).
         top_supports = gem_group.support_candidates[:3]
-        for candidate in top_supports:
-            gem_text = _build_gem_text(candidate)
-            swap_specs.append((gem_group.slot, candidate, gem_text))
+        for gem_candidate in top_supports:
+            gem_text = _build_gem_text(gem_candidate)
+            swap_specs.append((gem_group.slot, gem_candidate, gem_text))
 
     if not swap_specs:
         return []
@@ -428,12 +428,12 @@ async def simulate_upgrades(
 
     # Parse results
     results: list[SimulationResult] = []
-    for (slot, candidate, _item_text), raw in zip(swap_specs, raw_results, strict=True):
+    for (slot, swap_candidate, _item_text), raw in zip(swap_specs, raw_results, strict=True):
         if isinstance(raw, dict) and "error" in raw and len(raw) == 1:
             logger.debug(
                 "Swap failed for %s / %s: %s",
                 slot,
-                getattr(candidate, "name", getattr(candidate, "base_name", "?")),
+                getattr(swap_candidate, "name", getattr(swap_candidate, "base_name", "?")),
                 raw["error"],
             )
             continue
@@ -451,14 +451,14 @@ async def simulate_upgrades(
             if delta != 0.0:
                 deltas[field_name] = round(delta, 4)
 
-        price = getattr(candidate, "price_divine", None)
+        price = getattr(swap_candidate, "price_divine", None)
         # Flag median-estimate prices as uncertain
         price_uncertain = price is None
 
         results.append(
             SimulationResult(
                 slot=slot,
-                candidate=candidate,
+                candidate=swap_candidate,
                 baseline_stats=baseline,
                 modified_stats=modified,
                 deltas=deltas,
@@ -490,11 +490,11 @@ def score_recommendation(
     """Compute a composite score for a simulation result.
 
     Formula components:
-    * Critical fix bonus (×5.0) — item fixes an uncapped res or low life.
-    * DPS delta (×1.0, normalised over the simulation batch).
-    * EHP delta (×0.8, normalised over the simulation batch).
-    * Cost efficiency (×1.2) — DPS gain per divine orb.
-    * Archetype relevance (×0.5) — from the M3 candidate pipeline score.
+    * Critical fix bonus (x5.0) - item fixes an uncapped res or low life.
+    * DPS delta (x1.0, normalised over the simulation batch).
+    * EHP delta (x0.8, normalised over the simulation batch).
+    * Cost efficiency (x1.2) - DPS gain per divine orb.
+    * Archetype relevance (x0.5) - from the M3 candidate pipeline score.
 
     Args:
         sim: Simulation result to score.
@@ -512,7 +512,6 @@ def score_recommendation(
 
     dps_delta = sim.deltas.get("dps", 0.0)
     life_delta = sim.deltas.get("life", 0.0)
-    es_delta = sim.deltas.get("energy_shield", 0.0)
     ehp_delta = _compute_ehp(
         sim.modified_stats, archetype.defense_style
     ) - _compute_ehp(sim.baseline_stats, archetype.defense_style)
@@ -652,7 +651,7 @@ def build_recommendations(
         slot = sim.slot
         if slot_counts.get(slot, 0) >= 2:
             continue
-        # Allow override when score is 3× the highest alternative
+        # Allow override when score is 3x the highest alternative
         selected.append((score_val, sim))
         slot_counts[slot] = slot_counts.get(slot, 0) + 1
         if _is_defensive(sim):

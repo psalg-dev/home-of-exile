@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 from app.models.calculation import CalculationResult
 from app.models.candidate import BuildData, CandidateGem, CandidateItem
 
-
 # ---------------------------------------------------------------------------
 # Simulation result
 # ---------------------------------------------------------------------------
