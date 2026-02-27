@@ -128,7 +128,7 @@ test.describe('BuildPage', () => {
     await page.getByRole('button', { name: 'Analyse Build' }).click();
 
     await expect(page).toHaveURL('/build');
-    await page.getByRole('link', { name: '← Import another build' }).click();
+    await page.getByRole('button', { name: /import another build/i }).click();
     await expect(page).toHaveURL('/');
   });
 });

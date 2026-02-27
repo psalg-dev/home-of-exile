@@ -159,6 +159,8 @@ test.describe('Recommendations flow', () => {
     const card1 = page.getByTestId('recommendation-1');
     await expect(card1.getByText('Iron Ring')).toBeVisible();
     await expect(card1.getByText('Topaz Ring')).toBeVisible();
+    // Explanation is inside the collapsible body — expand first
+    await card1.getByRole('button').first().click();
     await expect(card1.getByText('Adds cold resistance to cap your cold res.')).toBeVisible();
     await expect(card1.getByText('~0.3 div')).toBeVisible();
   });
@@ -170,6 +172,11 @@ test.describe('Recommendations flow', () => {
 
     await expect(page).toHaveURL('/build');
     await expect(page.getByTestId('recommendations-list')).toBeVisible({ timeout: 10_000 });
+
+    // Expand all cards to reveal trade links (cards are collapsed by default)
+    await page.getByTestId('recommendation-1').getByRole('button').first().click();
+    await page.getByTestId('recommendation-2').getByRole('button').first().click();
+    await page.getByTestId('recommendation-3').getByRole('button').first().click();
 
     // Each card should have a trade link
     await expect(page.getByTestId('trade-link-1')).toBeVisible();
@@ -237,7 +244,7 @@ test.describe('Recommendations flow', () => {
 
     await expect(page).toHaveURL('/build');
     // Error alert should appear
-    const alert = page.getByRole('alert').filter({ hasText: 'Recommendations unavailable' });
+    const alert = page.getByRole('alert').filter({ hasText: 'Something went wrong generating recommendations' });
     await expect(alert).toBeVisible({ timeout: 10_000 });
   });
 

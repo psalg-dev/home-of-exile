@@ -19,5 +19,13 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Allow exporting hooks alongside context providers in context files.
+      // Hooks (use*) are co-located with their Provider as a standard React pattern.
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowExportNames: ['useLeague'] },
+      ],
+    },
   },
 ])

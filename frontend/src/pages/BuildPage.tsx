@@ -1,86 +1,65 @@
+﻿/**
+ * BuildPage â€” displays the parsed build summary, critical issues, and ranked
+ * upgrade recommendations from the M4 simulation engine.
+ *
+ * Implements D5.2 (loading/cancel/timeout), D5.3 (build summary), D5.4
+ * (recommendation cards), D5.7 (error states) from milestone M5.
+ */
 import { useEffect, useReducer, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { BuildData, Item } from '@/lib/pob/types';
 import type { Recommendation, CriticalIssue, RecommendResponse } from '@/lib/recommendations/types';
 import { fetchRecommendations } from '@/lib/recommendations/api';
+import { useLeague } from '@/contexts/league-context';
 
 // ---------------------------------------------------------------------------
-// Recommendation state machine — avoids calling setState synchronously
-// inside useEffect (react-hooks/set-state-in-effect).
+// Recommendation state machine
 // ---------------------------------------------------------------------------
+
+type ErrorKind = 'parse' | 'server' | 'timeout' | 'network' | 'unknown';
 
 type RecState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'success'; data: RecommendResponse }
-  | { status: 'error'; error: string };
+  | { status: 'error'; error: string; kind: ErrorKind };
 
 type RecAction =
   | { type: 'success'; data: RecommendResponse }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; kind: ErrorKind };
 
 function recReducer(_state: RecState, action: RecAction): RecState {
   switch (action.type) {
     case 'success': return { status: 'success', data: action.data };
-    case 'error': return { status: 'error', error: action.error };
+    case 'error':   return { status: 'error', error: action.error, kind: action.kind };
   }
 }
 
-/**
- * BuildPage — displays the parsed build, critical issues, and ranked upgrade
- * recommendations from the M4 simulation engine.
- */
+const ANALYSIS_TIMEOUT_MS = 20_000;
+
+// ---------------------------------------------------------------------------
+// BuildPage — outer shell: reads session storage, delegates to BuildPageContent
+// When league changes, BuildPageContent remounts via key to reset all state.
+// ---------------------------------------------------------------------------
+
 export default function BuildPage() {
-  const [buildData] = useState<BuildData | null>(() => {
+  const { league } = useLeague();
+  const navigate = useNavigate();
+
+  const buildData = useState<BuildData | null>(() => {
     const raw = sessionStorage.getItem('buildData');
     if (!raw) return null;
-    try {
-      return JSON.parse(raw) as BuildData;
-    } catch {
-      return null;
-    }
-  });
+    try { return JSON.parse(raw) as BuildData; } catch { return null; }
+  })[0];
 
-  const [itemsObj] = useState<Record<string, Item> | undefined>(() => {
+  const itemsObj = useState<Record<string, Item> | undefined>(() => {
     const raw = sessionStorage.getItem('buildData');
     if (!raw) return undefined;
     try {
       const parsed = JSON.parse(raw) as { items?: Record<string, Item> };
       return parsed.items;
-    } catch {
-      return undefined;
-    }
-  });
-
-  /**
-   * Initialise to 'loading' immediately if a pobCode is available —
-   * this avoids calling setState synchronously inside the effect
-   * (which would violate react-hooks/set-state-in-effect).
-   */
-  const [recState, dispatchRec] = useReducer(
-    recReducer,
-    undefined,
-    (): RecState => (sessionStorage.getItem('pobCode') ? { status: 'loading' } : { status: 'idle' }),
-  );
-
-  useEffect(() => {
-    if (!buildData) return;
-
-    const pobCode = sessionStorage.getItem('pobCode') ?? '';
-    if (!pobCode) return;
-
-    fetchRecommendations(buildData, pobCode, itemsObj)
-      .then(data => dispatchRec({ type: 'success', data }))
-      .catch((err: unknown) => {
-        const error = err instanceof Error ? err.message : 'Unknown error';
-        dispatchRec({ type: 'error', error });
-      });
-  }, [buildData, itemsObj]);
-
-  // Derived values for JSX
-  const isLoadingRec = recState.status === 'loading';
-  const recError = recState.status === 'error' ? recState.error : null;
-  const recResponse = recState.status === 'success' ? recState.data : null;
+    } catch { return undefined; }
+  })[0];
 
   if (!buildData) {
     return (
@@ -93,51 +72,101 @@ export default function BuildPage() {
     );
   }
 
+  return (
+    <BuildPageContent
+      key={league}
+      buildData={buildData}
+      itemsObj={itemsObj}
+      league={league}
+      onImportAnother={() => void navigate('/')}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BuildPageContent — mounts fresh for every new league (via key prop).
+// All analysis state initializes to 'loading' on mount.
+// ---------------------------------------------------------------------------
+
+interface BuildPageContentProps {
+  buildData: BuildData;
+  itemsObj: Record<string, Item> | undefined;
+  league: string;
+  onImportAnother: () => void;
+}
+
+function BuildPageContent({ buildData, itemsObj, league, onImportAnother }: BuildPageContentProps) {
+  const [timedOut, setTimedOut] = useState(false);
+
+  const [recState, dispatchRec] = useReducer(
+    recReducer,
+    undefined,
+    (): RecState => (sessionStorage.getItem('pobCode') ? { status: 'loading' } : { status: 'idle' }),
+  );
+
+  useEffect(() => {
+    const pobCode = sessionStorage.getItem('pobCode') ?? '';
+    if (!pobCode) return;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => setTimedOut(true), ANALYSIS_TIMEOUT_MS);
+
+    fetchRecommendations(buildData, pobCode, itemsObj, league)
+      .then(data => {
+        if (!controller.signal.aborted) {
+          clearTimeout(timeoutId);
+          dispatchRec({ type: 'success', data });
+        }
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        clearTimeout(timeoutId);
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        const isTimeout = msg.toLowerCase().includes('timeout') || msg.includes('signal');
+        const isNetwork = msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network');
+        const kind = isTimeout ? 'timeout' : isNetwork ? 'network' : 'server';
+        dispatchRec({ type: 'error', error: msg, kind });
+      });
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+    }, [buildData, itemsObj, league]); // stable props — remounted per league via key
+
+  const isLoadingRec = recState.status === 'loading';
+  const recError = recState.status === 'error' ? recState : null;
+  const recResponse = recState.status === 'success' ? recState.data : null;
+
   const { characterName, class: cls, ascendancy, level, bandit, mainSkill, stats } = buildData;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-950 text-gray-100 pb-10">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-amber-400">
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-2xl sm:text-3xl font-bold text-amber-400">
             {characterName || `${cls} Build`}
           </h1>
-          <Link to="/" className="text-gray-400 hover:text-gray-200 text-sm">
-            ← Import another build
-          </Link>
+          <button
+            type="button"
+            onClick={onImportAnother}
+            className="text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            â† Import another build
+          </button>
         </div>
 
-        {/* Character info */}
-        <div className="bg-gray-800 rounded-lg p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-          <InfoItem label="Class" value={cls || '—'} />
-          <InfoItem label="Ascendancy" value={ascendancy || '—'} />
-          <InfoItem label="Level" value={level ? String(level) : '—'} />
-          <InfoItem label="Bandit" value={bandit || 'None'} />
-        </div>
-
-        {/* Main skill */}
-        {mainSkill && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Main Skill</div>
-            <div className="text-amber-400 font-semibold text-lg">{mainSkill}</div>
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h2 className="text-sm text-gray-500 uppercase tracking-wide mb-3">Stats</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatItem label="Life" value={stats.life} color="text-red-400" />
-            <StatItem label="Energy Shield" value={stats.energyShield} color="text-blue-400" />
-            <StatItem label="DPS" value={stats.dps} color="text-amber-400" />
-            <StatItem label="Fire Res" value={stats.fireRes} suffix="%" color="text-orange-400" />
-            <StatItem label="Cold Res" value={stats.coldRes} suffix="%" color="text-cyan-400" />
-            <StatItem label="Lightning Res" value={stats.lightningRes} suffix="%" color="text-yellow-400" />
-            <StatItem label="Chaos Res" value={stats.chaosRes} suffix="%" color="text-purple-400" />
-          </div>
-        </div>
+        {/* D5.3 Build Summary Card */}
+        <BuildSummaryCard
+          cls={cls}
+          ascendancy={ascendancy}
+          level={level}
+          bandit={bandit}
+          mainSkill={mainSkill}
+          stats={stats}
+        />
 
         {/* Critical issues */}
         {recResponse && recResponse.critical_issues.length > 0 && (
@@ -146,44 +175,67 @@ export default function BuildPage() {
 
         {/* Recommendations section */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-xl font-semibold text-gray-100">Upgrade Recommendations</h2>
-            {recResponse && (
-              <span className="text-xs text-gray-500">
-                {recResponse.simulation_count} simulations · {recResponse.elapsed_seconds.toFixed(1)}s
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {recResponse && (
+                <span className="text-xs text-gray-500">
+                  {recResponse.simulation_count} simulations Â· {recResponse.elapsed_seconds.toFixed(1)}s Â·{' '}
+                  <span className="text-gray-400">{league}</span>
+                </span>
+              )}
+            </div>
           </div>
 
+          {/* Loading â€” skeleton cards */}
           {isLoadingRec && (
             <div
               role="status"
               aria-label="Loading recommendations"
-              className="bg-gray-800 rounded-lg p-6 flex items-center justify-center gap-3 text-gray-400"
+              className="space-y-3"
             >
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Simulating upgrade candidates…
+              {timedOut && (
+                <div role="alert" className="bg-yellow-950 border border-yellow-700 rounded-lg p-3 text-yellow-300 text-sm">
+                  Analysis is taking longer than expected. This may happen with very complex builds.
+                </div>
+              )}
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="bg-gray-800 rounded-lg p-4 space-y-3 animate-pulse" aria-hidden="true">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 bg-gray-700 rounded-full" />
+                    <div className="h-4 bg-gray-700 rounded w-1/3" />
+                    <div className="ml-auto h-4 bg-gray-700 rounded w-16" />
+                  </div>
+                  <div className="h-3 bg-gray-700 rounded w-2/3" />
+                  <div className="flex gap-2">
+                    <div className="h-5 bg-gray-700 rounded-full w-16" />
+                    <div className="h-5 bg-gray-700 rounded-full w-20" />
+                  </div>
+                </div>
+              ))}
+              <p className="text-center text-sm text-gray-500 animate-pulse">
+                Simulating upgrade candidatesâ€¦
+              </p>
             </div>
           )}
 
+          {/* Error states */}
           {!isLoadingRec && recError && (
-            <div
-              role="alert"
-              className="bg-red-950 border border-red-700 rounded-lg p-4 text-red-300 text-sm"
-            >
-              <span className="font-semibold">Recommendations unavailable: </span>{recError}
-            </div>
+            <ErrorPanel kind={recError.kind} onRetry={() => {
+              // Re-trigger by re-navigating (simplest approach)
+              const code = sessionStorage.getItem('pobCode');
+              if (code) window.location.reload();
+            }} />
           )}
 
+          {/* Empty state */}
           {!isLoadingRec && !recError && recResponse && recResponse.recommendations.length === 0 && (
             <div className="bg-gray-800 rounded-lg p-6 text-center text-gray-500">
               No upgrade recommendations found for this build.
             </div>
           )}
 
+          {/* D5.4 Recommendation cards */}
           {!isLoadingRec && recResponse && recResponse.recommendations.length > 0 && (
             <div className="space-y-3" data-testid="recommendations-list">
               {recResponse.recommendations.map(rec => (
@@ -199,45 +251,103 @@ export default function BuildPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// D5.3 Build Summary Card
 // ---------------------------------------------------------------------------
 
-interface InfoItemProps {
-  label: string;
-  value: string;
+interface BuildSummaryCardProps {
+  cls: string;
+  ascendancy: string;
+  level: number;
+  bandit: string;
+  mainSkill: string;
+  stats: BuildData['stats'];
 }
 
-function InfoItem({ label, value }: InfoItemProps) {
+function BuildSummaryCard({ cls, ascendancy, level, bandit, mainSkill, stats }: BuildSummaryCardProps) {
+  const resCap = 75;
+  type ResKey = 'fireRes' | 'coldRes' | 'lightningRes' | 'chaosRes';
+  const resFields: { label: string; key: ResKey; color: string; capColor: string }[] = [
+    { label: 'Fire',      key: 'fireRes',       color: 'text-orange-400', capColor: 'text-green-400' },
+    { label: 'Cold',      key: 'coldRes',       color: 'text-cyan-400',   capColor: 'text-green-400' },
+    { label: 'Lightning', key: 'lightningRes',  color: 'text-yellow-400', capColor: 'text-green-400' },
+    { label: 'Chaos',     key: 'chaosRes',      color: 'text-purple-400', capColor: 'text-green-400' },
+  ];
+
   return (
-    <div>
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className="text-gray-100 font-medium">{value}</div>
-    </div>
-  );
-}
+    <div className="bg-gray-800 rounded-lg p-5 space-y-4" data-testid="build-summary">
+      {/* Character row */}
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <InfoItem label="Class"      value={cls || 'â€”'} />
+        <InfoItem label="Ascendancy" value={ascendancy || 'â€”'} />
+        <InfoItem label="Level"      value={level ? String(level) : 'â€”'} />
+        <InfoItem label="Bandit"     value={bandit || 'None'} />
+        {mainSkill && <InfoItem label="Main Skill" value={mainSkill} highlight />}
+      </div>
 
-interface StatItemProps {
-  label: string;
-  value: number;
-  color?: string;
-  suffix?: string;
-}
+      {/* Key stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatBar label="Life"           value={stats.life}         color="bg-red-500"  textColor="text-red-400" />
+        <StatBar label="Energy Shield"  value={stats.energyShield} color="bg-blue-500" textColor="text-blue-400" />
+        <StatBar label="DPS"            value={stats.dps}          color="bg-amber-500" textColor="text-amber-400" isDps />
+      </div>
 
-function StatItem({ label, value, color = 'text-gray-100', suffix = '' }: StatItemProps) {
-  return (
-    <div>
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className={`font-semibold text-lg ${color}`}>
-        {value.toLocaleString()}{suffix}
+      {/* Resistances */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {resFields.map(r => {
+          const val = stats[r.key];
+          const capped = val >= resCap;
+          return (
+            <div key={r.key} className={`rounded px-3 py-2 text-center ${capped ? 'bg-green-950/40 border border-green-800/50' : 'bg-red-950/40 border border-red-800/50'}`}>
+              <div className="text-xs text-gray-500 uppercase tracking-wide">{r.label} Res</div>
+              <div className={`font-bold text-lg ${capped ? 'text-green-400' : 'text-red-400'}`}>
+                {val}%
+              </div>
+              {!capped && <div className="text-xs text-red-500">Uncapped</div>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-interface CriticalIssuesPanelProps {
-  issues: CriticalIssue[];
+interface InfoItemProps { label: string; value: string; highlight?: boolean }
+function InfoItem({ label, value, highlight = false }: InfoItemProps) {
+  return (
+    <div>
+      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
+      <div className={`font-medium ${highlight ? 'text-amber-400' : 'text-gray-100'}`}>{value}</div>
+    </div>
+  );
 }
 
+interface StatBarProps {
+  label: string;
+  value: number;
+  color: string;
+  textColor: string;
+  isDps?: boolean;
+}
+function StatBar({ label, value, textColor, isDps = false }: StatBarProps) {
+  const formatted = isDps && value >= 1_000_000
+    ? `${(value / 1_000_000).toFixed(2)}M`
+    : isDps && value >= 1_000
+      ? `${(value / 1_000).toFixed(1)}k`
+      : value.toLocaleString();
+
+  return (
+    <div className="bg-gray-700/50 rounded px-3 py-2">
+      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
+      <div className={`font-bold text-xl ${textColor}`}>{formatted}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Critical Issues Panel
+// ---------------------------------------------------------------------------
+
+interface CriticalIssuesPanelProps { issues: CriticalIssue[] }
 function CriticalIssuesPanel({ issues }: CriticalIssuesPanelProps) {
   return (
     <div className="space-y-2" aria-label="Critical issues" data-testid="critical-issues">
@@ -253,12 +363,10 @@ function CriticalIssuesPanel({ issues }: CriticalIssuesPanelProps) {
           }`}
         >
           <span className="text-base leading-none mt-0.5">
-            {issue.severity === 'critical' ? '⚠️' : '⚡'}
+            {issue.severity === 'critical' ? 'âš ï¸' : 'âš¡'}
           </span>
           <div>
-            <span className="font-semibold capitalize">
-              {issue.category.replace(/_/g, ' ')}:{' '}
-            </span>
+            <span className="font-semibold capitalize">{issue.category.replace(/_/g, ' ')}: </span>
             {issue.description}
             {issue.currentValue !== issue.targetValue && (
               <span className="ml-2 text-xs opacity-70">
@@ -272,110 +380,204 @@ function CriticalIssuesPanel({ issues }: CriticalIssuesPanelProps) {
   );
 }
 
-const CATEGORY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  critical_fix:    { bg: 'bg-red-900/40 border-red-700',    text: 'text-red-300',    label: 'Critical Fix' },
-  power_upgrade:   { bg: 'bg-amber-900/40 border-amber-700', text: 'text-amber-300', label: 'Power Upgrade' },
-  defense_upgrade: { bg: 'bg-blue-900/40 border-blue-700',  text: 'text-blue-300',  label: 'Defense Upgrade' },
-  efficiency:      { bg: 'bg-green-900/40 border-green-700', text: 'text-green-300', label: 'Efficiency' },
-  qol:             { bg: 'bg-gray-700/40 border-gray-600',  text: 'text-gray-300',  label: 'QoL' },
+// ---------------------------------------------------------------------------
+// D5.7 Error Panel
+// ---------------------------------------------------------------------------
+
+const ERROR_MESSAGES: Record<ErrorKind, string> = {
+  parse:   "We couldn't parse this PoB code. Make sure you're using Path of Building Community Fork v2.35 or later.",
+  server:  'Something went wrong generating recommendations. Please try again.',
+  timeout: 'Analysis is taking longer than expected. This may happen with very complex builds.',
+  network: 'Unable to reach the server. Check your connection and try again.',
+  unknown: 'Something went wrong generating recommendations. Please try again.',
 };
 
-interface RecommendationCardProps {
-  rec: Recommendation;
+interface ErrorPanelProps { kind: ErrorKind; onRetry: () => void }
+function ErrorPanel({ kind, onRetry }: ErrorPanelProps) {
+  return (
+    <div
+      role="alert"
+      className="bg-red-950 border border-red-700 rounded-lg p-4 space-y-3"
+    >
+      <p className="text-red-300 text-sm">{ERROR_MESSAGES[kind]}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="text-xs bg-red-800 hover:bg-red-700 text-red-100 px-3 py-1.5 rounded transition-colors"
+      >
+        Try Again
+      </button>
+    </div>
+  );
 }
 
+// ---------------------------------------------------------------------------
+// D5.4 Recommendation Card (collapsible, feedback buttons)
+// ---------------------------------------------------------------------------
+
+const CATEGORY_STYLES: Record<string, { bg: string; badgeBg: string; text: string; label: string }> = {
+  critical_fix:    { bg: 'bg-red-900/30 border-red-700',    badgeBg: 'bg-red-700',    text: 'text-red-300',    label: 'Critical Fix' },
+  power_upgrade:   { bg: 'bg-amber-900/30 border-amber-700', badgeBg: 'bg-amber-700', text: 'text-amber-300',  label: 'Power Upgrade' },
+  defense_upgrade: { bg: 'bg-blue-900/30 border-blue-700',  badgeBg: 'bg-blue-700',   text: 'text-blue-300',   label: 'Defense Upgrade' },
+  efficiency:      { bg: 'bg-green-900/30 border-green-700', badgeBg: 'bg-green-700', text: 'text-green-300',  label: 'Efficiency' },
+  qol:             { bg: 'bg-purple-900/30 border-purple-700', badgeBg: 'bg-purple-700', text: 'text-purple-300', label: 'Quality of Life' },
+};
+
+interface RecommendationCardProps { rec: Recommendation }
+
 function RecommendationCard({ rec }: RecommendationCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const style = CATEGORY_STYLES[rec.category] ?? CATEGORY_STYLES.qol;
 
   const dpsDelta = rec.deltas['dps'] ?? rec.deltas['total_dps'] ?? null;
-  const ehpDelta = rec.deltas['ehp'] ?? rec.deltas['effective_hp'] ?? null;
+  const lifeDelta = rec.deltas['life'] ?? null;
+  const esDelta   = rec.deltas['es'] ?? rec.deltas['energy_shield'] ?? null;
+  const ehpDelta  = rec.deltas['ehp'] ?? rec.deltas['effective_hp'] ?? null;
+  const fireResDelta  = rec.deltas['fire_res'] ?? null;
+  const coldResDelta  = rec.deltas['cold_res'] ?? null;
+  const lightResDelta = rec.deltas['lightning_res'] ?? null;
 
   return (
     <div
       data-testid={`recommendation-${rec.rank}`}
-      className={`rounded-lg border p-4 space-y-3 ${style.bg}`}
+      className={`rounded-lg border ${style.bg} overflow-hidden`}
     >
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-2xl font-bold text-gray-500">#{rec.rank}</span>
+      {/* Clickable header â€” always visible */}
+      <button
+        type="button"
+        className="w-full text-left px-4 py-3 flex items-start justify-between gap-3 hover:bg-white/5 transition-colors"
+        onClick={() => setExpanded(e => !e)}
+        aria-expanded={expanded}
+        aria-controls={`rec-body-${rec.rank}`}
+      >
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          {/* Rank + category badge */}
+          <span className={`shrink-0 w-8 h-8 rounded-full ${style.badgeBg} flex items-center justify-center text-white text-xs font-bold`}>
+            #{rec.rank}
+          </span>
           <span className={`text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${style.text} ${style.bg}`}>
             {style.label}
           </span>
-          <span className="text-xs text-gray-500 uppercase">{rec.slot}</span>
+          <span className="text-xs text-gray-500 uppercase shrink-0">{rec.slot}</span>
+          {/* Deltas inline on header */}
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {dpsDelta !== null && dpsDelta !== 0 && <DeltaBadge label="DPS" value={dpsDelta} formatFn={formatDps} />}
+            {lifeDelta !== null && lifeDelta !== 0 && <DeltaBadge label="Life" value={lifeDelta} formatFn={Math.round} />}
+            {esDelta   !== null && esDelta   !== 0 && <DeltaBadge label="ES"   value={esDelta}   formatFn={Math.round} />}
+            {ehpDelta  !== null && ehpDelta  !== 0 && <DeltaBadge label="EHP"  value={ehpDelta}  formatFn={Math.round} />}
+          </div>
         </div>
-        {rec.priceDivine !== null && (
-          <span className="text-sm font-semibold text-amber-400 whitespace-nowrap">
-            ~{rec.priceDivine.toFixed(1)} div
-          </span>
-        )}
-      </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {rec.priceDivine !== null && (
+            <span className="text-sm font-semibold text-amber-400 whitespace-nowrap">
+              ~{rec.priceDivine.toFixed(1)} div
+            </span>
+          )}
+          {rec.priceDivine === null && (
+            <span className="text-xs text-gray-500 whitespace-nowrap">Price unknown</span>
+          )}
+          <span className={`text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true">â–¾</span>
+        </div>
+      </button>
 
-      {/* Item change */}
-      <div className="flex items-center gap-2 text-sm flex-wrap">
+      {/* Item swap line */}
+      <div className="px-4 pb-2 flex items-center gap-2 text-sm flex-wrap">
         <span className="text-gray-400">{rec.currentItem}</span>
-        <span className="text-gray-600">→</span>
+        <span className="text-gray-600">â†’</span>
         <span className="text-gray-100 font-medium">{rec.suggestedItem}</span>
       </div>
 
-      {/* Delta badges */}
-      <div className="flex flex-wrap gap-2">
-        {dpsDelta !== null && dpsDelta !== 0 && (
-          <DeltaBadge label="DPS" value={dpsDelta} formatFn={formatDps} />
-        )}
-        {ehpDelta !== null && ehpDelta !== 0 && (
-          <DeltaBadge label="EHP" value={ehpDelta} formatFn={Math.round} />
-        )}
-        {rec.efficiencyScore !== null && (
-          <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">
-            eff {rec.efficiencyScore.toFixed(2)}
-          </span>
-        )}
-      </div>
+      {/* Expandable body */}
+      {expanded && (
+        <div id={`rec-body-${rec.rank}`} className="px-4 pb-4 space-y-3 border-t border-white/10 pt-3">
+          {/* Resistance deltas */}
+          {(fireResDelta !== null || coldResDelta !== null || lightResDelta !== null) && (
+            <div className="flex flex-wrap gap-2">
+              {fireResDelta  !== null && fireResDelta  !== 0 && <DeltaBadge label="Î”Fire Res"  value={fireResDelta}  formatFn={v => `${Math.round(v)}%`} />}
+              {coldResDelta  !== null && coldResDelta  !== 0 && <DeltaBadge label="Î”Cold Res"  value={coldResDelta}  formatFn={v => `${Math.round(v)}%`} />}
+              {lightResDelta !== null && lightResDelta !== 0 && <DeltaBadge label="Î”Lght Res"  value={lightResDelta} formatFn={v => `${Math.round(v)}%`} />}
+            </div>
+          )}
 
-      {/* Explanation */}
-      <p className="text-sm text-gray-300">{rec.explanation}</p>
+          {/* Efficiency */}
+          {rec.efficiencyScore !== null && (
+            <div className="text-xs text-gray-400">
+              Efficiency: <span className="text-gray-200 font-medium">{formatDps(rec.efficiencyScore)} DPS per divine</span>
+            </div>
+          )}
 
-      {/* Action links */}
-      <div className="flex flex-wrap gap-2">
-        {rec.tradeUrl && (
-          <a
-            href={rec.tradeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid={`trade-link-${rec.rank}`}
-            className="text-xs bg-amber-600 hover:bg-amber-500 text-gray-950 font-semibold
-                       px-3 py-1.5 rounded transition-colors"
-          >
-            Trade →
-          </a>
-        )}
-        {rec.ninjaUrl && (
-          <a
-            href={rec.ninjaUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200
-                       px-3 py-1.5 rounded transition-colors"
-          >
-            poe.ninja
-          </a>
-        )}
-        {rec.wikiUrl && (
-          <a
-            href={rec.wikiUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200
-                       px-3 py-1.5 rounded transition-colors"
-          >
-            Wiki
-          </a>
-        )}
-      </div>
+          {/* Explanation */}
+          <p className="text-sm text-gray-300">{rec.explanation}</p>
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2">
+            {rec.tradeUrl && (
+              <a
+                href={rec.tradeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={`trade-link-${rec.rank}`}
+                className="text-xs bg-amber-600 hover:bg-amber-500 text-gray-950 font-semibold
+                           px-3 py-1.5 rounded transition-colors"
+              >
+                Search on Trade â†—
+              </a>
+            )}
+            {rec.wikiUrl && (
+              <a
+                href={rec.wikiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200
+                           px-3 py-1.5 rounded transition-colors"
+              >
+                View on Wiki â†—
+              </a>
+            )}
+            {rec.ninjaUrl && (
+              <a
+                href={rec.ninjaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200
+                           px-3 py-1.5 rounded transition-colors"
+              >
+                Price History â†—
+              </a>
+            )}
+          </div>
+
+          {/* D5.4 Feedback buttons â€” disabled until M6 */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs text-gray-500">Was this helpful?</span>
+            <button
+              type="button"
+              disabled
+              title="Feedback coming in M6"
+              className="text-sm px-2 py-0.5 rounded bg-gray-800 text-gray-600 cursor-not-allowed"
+              aria-label="Thumbs up feedback (coming soon)"
+            >
+              ðŸ‘
+            </button>
+            <button
+              type="button"
+              disabled
+              title="Feedback coming in M6"
+              className="text-sm px-2 py-0.5 rounded bg-gray-800 text-gray-600 cursor-not-allowed"
+              aria-label="Thumbs down feedback (coming soon)"
+            >
+              ðŸ‘Ž
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 interface DeltaBadgeProps {
   label: string;
@@ -401,3 +603,5 @@ function formatDps(value: number): string {
   if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
   return String(Math.round(value));
 }
+
+
