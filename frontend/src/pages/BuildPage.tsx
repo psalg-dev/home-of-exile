@@ -117,7 +117,7 @@ function BuildPageContent({ buildData, itemsObj, league, onImportAnother }: Buil
     const controller = new AbortController();
     const timeoutId = setTimeout(() => setTimedOut(true), ANALYSIS_TIMEOUT_MS);
 
-    fetchRecommendations(buildData, pobCode, itemsObj, league)
+    fetchRecommendations(buildData, pobCode, itemsObj, league, sessionId)
       .then(data => {
         if (!controller.signal.aborted) {
           clearTimeout(timeoutId);
@@ -138,7 +138,7 @@ function BuildPageContent({ buildData, itemsObj, league, onImportAnother }: Buil
       controller.abort();
       clearTimeout(timeoutId);
     };
-    }, [buildData, itemsObj, league]); // stable props — remounted per league via key
+    }, [buildData, itemsObj, league, sessionId]); // stable props — remounted per league via key
 
   const isLoadingRec = recState.status === 'loading';
   const recError = recState.status === 'error' ? recState : null;
@@ -446,6 +446,8 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
   const [expanded, setExpanded] = useState(false);
   /** null = not voted yet, 'up' | 'down' = voted */
   const [voted, setVoted] = useState<'up' | 'down' | null>(null);
+  /** null = not reported, 'reported' = wrong_explanation submitted */
+  const [reported, setReported] = useState<'reported' | null>(null);
   const style = CATEGORY_STYLES[rec.category] ?? CATEGORY_STYLES.qol;
 
   const dpsDelta = rec.deltas['dps'] ?? rec.deltas['total_dps'] ?? null;
@@ -476,6 +478,32 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
         dps_delta: dpsDelta,
         ehp_delta: ehpDelta,
         price_divine: rec.priceDivine,
+        explanation_source: rec.explanationSource,
+      },
+    });
+  }
+
+  /** Report that the explanation is wrong or misleading. */
+  async function handleReportExplanation() {
+    if (reported !== null) return; // already reported
+    setReported('reported'); // optimistically update UI
+    await submitFeedback({
+      session_id: sessionId,
+      recommendation_rank: rec.rank,
+      vote: 'wrong_explanation',
+      context: {
+        archetype_damage: '',
+        archetype_defense: '',
+        archetype_playstyle: '',
+        character_level: characterLevel,
+        league,
+        recommendation_category: rec.category,
+        slot: rec.slot,
+        suggested_item: rec.suggestedItem,
+        dps_delta: dpsDelta,
+        ehp_delta: ehpDelta,
+        price_divine: rec.priceDivine,
+        explanation_source: rec.explanationSource,
       },
     });
   }
@@ -564,6 +592,24 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
 
           {/* Explanation */}
           <p className="text-sm text-gray-300">{rec.explanation}</p>
+
+          {/* D7.5 — Report incorrect explanation (LLM-sourced only) */}
+          {rec.explanationSource === 'llm' && (
+            <div className="text-xs text-gray-600">
+              {reported === 'reported' ? (
+                <span className="text-gray-500">Thank you for the report.</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleReportExplanation()}
+                  data-testid={`report-explanation-${rec.rank}`}
+                  className="text-gray-500 hover:text-red-400 underline cursor-pointer transition-colors"
+                >
+                  Report incorrect explanation
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2">

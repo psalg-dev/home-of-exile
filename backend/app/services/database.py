@@ -98,9 +98,10 @@ CREATE TABLE IF NOT EXISTS feedback (
     ehp_delta FLOAT,
     price_divine FLOAT,
     -- Feedback
-    vote TEXT NOT NULL CHECK (vote IN ('up', 'down')),
+    vote TEXT NOT NULL CHECK (vote IN ('up', 'down', 'wrong_explanation')),
     -- Tracking
-    session_id TEXT NOT NULL
+    session_id TEXT NOT NULL,
+    explanation_source TEXT NOT NULL DEFAULT 'template'
 );
 
 CREATE TABLE IF NOT EXISTS trade_clicks (
@@ -159,9 +160,9 @@ async def insert_feedback(record: dict) -> bool:  # type: ignore[type-arg]
                     character_level, league,
                     recommendation_rank, recommendation_category,
                     slot, suggested_item, dps_delta, ehp_delta, price_divine,
-                    vote, session_id
+                    vote, session_id, explanation_source
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
                 )
                 """,
                 record.get("archetype_damage", ""),
@@ -178,6 +179,7 @@ async def insert_feedback(record: dict) -> bool:  # type: ignore[type-arg]
                 record.get("price_divine"),
                 record["vote"],
                 record["session_id"],
+                record.get("explanation_source", "template"),
             )
         return True
     except Exception:

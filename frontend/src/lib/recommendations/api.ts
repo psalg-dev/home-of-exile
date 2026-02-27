@@ -111,6 +111,7 @@ function serializeBuild(
  * @param buildCode - Raw PoB export code for the LuaJIT simulation engine.
  * @param itemsObj - Items as a plain object (from sessionStorage).
  * @param league - League name (default: ``'Settlers'``).
+ * @param sessionId - Frontend session UUID for A/B LLM assignment.
  * @returns Parsed {@link RecommendResponse} from the backend.
  * @throws Error on non-2xx HTTP response.
  */
@@ -119,13 +120,17 @@ export async function fetchRecommendations(
   buildCode: string,
   itemsObj: Record<string, Item> | undefined,
   league = 'Settlers',
+  sessionId?: string,
 ): Promise<RecommendResponse> {
-  const body = {
+  const body: Record<string, unknown> = {
     build: serializeBuild(build, itemsObj),
     build_code: buildCode,
     league,
     max_candidates_per_slot: 5,
   };
+  if (sessionId) {
+    body['session_id'] = sessionId;
+  }
 
   const resp = await fetch(`${API_BASE}/api/v1/recommendations`, {
     method: 'POST',
@@ -150,6 +155,7 @@ export async function fetchRecommendations(
       price_divine: number | null;
       efficiency_score: number | null;
       explanation: string;
+      explanation_source: string;
       trade_url: string;
       wiki_url: string | null;
       ninja_url: string | null;
@@ -178,6 +184,7 @@ export async function fetchRecommendations(
       priceDivine: r.price_divine,
       efficiencyScore: r.efficiency_score,
       explanation: r.explanation,
+      explanationSource: (r.explanation_source ?? 'template') as 'llm' | 'template',
       tradeUrl: r.trade_url,
       wikiUrl: r.wiki_url,
       ninjaUrl: r.ninja_url,

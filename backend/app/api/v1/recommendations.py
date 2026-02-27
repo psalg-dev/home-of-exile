@@ -20,10 +20,11 @@ from app.models.recommendation import (
 )
 from app.services.archetype import detect_archetype
 from app.services.candidate_generator import run_pipeline
+from app.services.llm_explainer import get_llm_service
 from app.services.luajit_pool import get_pool
 from app.services.poe_ninja import PoeNinjaClient
 from app.services.simulation import (
-    build_recommendations,
+    build_recommendations_async,
     detect_critical_issues,
     simulate_upgrades,
 )
@@ -228,12 +229,14 @@ async def get_recommendations(
         )
 
     # 6. Build ranked recommendations
-    recommendations = build_recommendations(
+    recommendations = await build_recommendations_async(
         simulations=sim_results,
         issues=critical_issues,
         build=build,
         archetype=archetype,
         league=league,
+        session_id=body.session_id,
+        llm_service=get_llm_service(),
     )
 
     elapsed = round(time.monotonic() - start_time, 3)

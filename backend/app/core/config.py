@@ -42,6 +42,31 @@ class Settings(BaseSettings):
     # Environment label
     environment: str = "development"
 
+    # ---------------------------------------------------------------------------
+    # LLM (M7) settings
+    # ---------------------------------------------------------------------------
+
+    # OpenAI API key — required for LLM explanations.
+    # If empty, all requests fall back to template explanations.
+    openai_api_key: str = ""
+
+    # Model to use for explanations (cost-efficient default).
+    llm_model: str = "gpt-4o-mini"
+
+    # Per-call timeout in seconds before falling back to template.
+    llm_timeout_seconds: float = 3.0
+
+    # Daily USD spend cap. When reached, all requests fall back to templates.
+    # Set to 0 to disable the cap.
+    llm_daily_spend_cap_usd: float = 5.0
+
+    # A/B test fraction receiving LLM explanations (0.0 = all template,
+    # 1.0 = all LLM). 0.5 = 50/50 split.
+    llm_ab_fraction: float = 0.5
+
+    # Feature flag — master on/off switch for LLM explanations.
+    llm_enabled: bool = True
+
     def allowed_origins_list(self) -> list[str]:
         """Parse allowed_origins into a list of origin strings.
 

@@ -6,7 +6,6 @@ These tests use mocking to avoid requiring a real LuaJIT binary.
 from __future__ import annotations
 
 import base64
-import json
 import zlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,7 +16,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models.calculation import CalculationResult, SwapResult
 from app.services.luajit_pool import LuaJITPoolManager, LuaJITWorkerError
-
 
 # ---------------------------------------------------------------------------
 # Helpers

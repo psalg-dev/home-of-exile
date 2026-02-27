@@ -4,14 +4,13 @@ Unit tests for the poe.ninja price client.
 Uses httpx mock transport to avoid real network calls.
 """
 
-from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
 
-from app.services.poe_ninja import PoeNinjaClient, _CACHE_TTL
+from app.services.poe_ninja import PoeNinjaClient
 
 
 def _make_item_response(items: list[dict[str, Any]]) -> dict[str, Any]:

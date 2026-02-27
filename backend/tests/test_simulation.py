@@ -1,4 +1,4 @@
-"""Tests for the M4 simulation loop and recommendation engine.
+﻿"""Tests for the M4 simulation loop and recommendation engine.
 
 Covers all acceptance criteria from M4:
 * AC3  — Returns exactly 5 recommendations.
@@ -20,7 +20,6 @@ Also covers:
 from __future__ import annotations
 
 import base64
-import json
 import urllib.parse
 import zlib
 from typing import Any
@@ -41,27 +40,21 @@ from app.models.candidate import (
     CandidateGem,
     CandidateItem,
     CharacterAttrs,
-    GemGroupCandidates,
-    ItemAttrReq,
     SlotCandidates,
 )
 from app.models.recommendation import (
     CriticalIssue,
     Recommendation,
-    RecommendRequest,
     RecommendResponse,
     SimulationResult,
 )
 from app.services.simulation import (
-    _build_item_text,
-    _compute_ehp,
     build_recommendations,
     detect_critical_issues,
     generate_trade_link,
     score_recommendation,
     simulate_upgrades,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -488,7 +481,7 @@ class TestScoreRecommendation:
         Expected: cheap item score > expensive item score for equal DPS.
         """
         archetype = _make_archetype()
-        # Items with no life gain so EHP doesn’t dominate
+        # Items with no life gain so EHP doesn't dominate
         cheap = _make_simulation_result(dps_gain=100_000.0, life_gain=0, price=0.5)
         expensive = _make_simulation_result(dps_gain=100_000.0, life_gain=0, price=10.0)
         s_cheap = score_recommendation(
@@ -611,7 +604,7 @@ class TestBuildRecommendations:
         assert max(slot_counts.values()) <= 2
 
     def test_ranks_are_1_through_5(self) -> None:
-        """Ranks in recommendations are sequential integers 1–5.
+        """Ranks in recommendations are sequential integers 1-5.
 
         Expected: sorted rank list == [1, 2, 3, 4, 5].
         """
@@ -652,7 +645,7 @@ class TestBuildRecommendations:
         build = _make_build(fire_res=20)
         archetype = _make_archetype()
         issues = detect_critical_issues(build)
-        res_issue = next(i for i in issues if i.category == "uncapped_res")
+        next(i for i in issues if i.category == "uncapped_res")
 
         # Create a candidate that fixes the resistance
         candidate = CandidateItem(
@@ -676,7 +669,7 @@ class TestBuildRecommendations:
         )
         # Mix with other sims with higher DPS gain but no res fix
         other_sims = self._make_diverse_simulations(8)
-        all_sims = [fix_sim] + other_sims
+        all_sims = [fix_sim, *other_sims]
 
         recs = build_recommendations(all_sims, issues, build, archetype)
         first = recs[0]
@@ -701,7 +694,7 @@ class TestBuildRecommendations:
         build = _make_build()
         archetype = _make_archetype()
         # Use 3 sims in 3 different slots so the max-2-per-slot rule
-        # doesn’t drop any of them.
+        # doesn't drop any of them.
         sims = [
             _make_simulation_result(slot="Helmet", name="A", dps_gain=300_000.0),
             _make_simulation_result(slot="Gloves", name="B", dps_gain=200_000.0),
