@@ -1,9 +1,10 @@
 ﻿/**
- * BuildPage â€” displays the parsed build summary, critical issues, and ranked
+ * BuildPage — displays the parsed build summary, critical issues, and ranked
  * upgrade recommendations from the M4 simulation engine.
  *
  * Implements D5.2 (loading/cancel/timeout), D5.3 (build summary), D5.4
  * (recommendation cards), D5.7 (error states) from milestone M5.
+ * Implements D6.3 (feedback buttons, trade-click tracking, session ID) from M6.
  */
 import { useEffect, useReducer, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,6 +12,8 @@ import type { BuildData, Item } from '@/lib/pob/types';
 import type { Recommendation, CriticalIssue, RecommendResponse } from '@/lib/recommendations/types';
 import { fetchRecommendations } from '@/lib/recommendations/api';
 import { useLeague } from '@/contexts/league-context';
+import { getSessionId } from '@/lib/session';
+import { submitFeedback, trackTradeClick } from '@/lib/feedback/api';
 
 // ---------------------------------------------------------------------------
 // Recommendation state machine
@@ -97,6 +100,9 @@ interface BuildPageContentProps {
 
 function BuildPageContent({ buildData, itemsObj, league, onImportAnother }: BuildPageContentProps) {
   const [timedOut, setTimedOut] = useState(false);
+
+  // Session ID — generated once per browser session, used for feedback
+  const sessionId = getSessionId();
 
   const [recState, dispatchRec] = useReducer(
     recReducer,
@@ -239,7 +245,13 @@ function BuildPageContent({ buildData, itemsObj, league, onImportAnother }: Buil
           {!isLoadingRec && recResponse && recResponse.recommendations.length > 0 && (
             <div className="space-y-3" data-testid="recommendations-list">
               {recResponse.recommendations.map(rec => (
-                <RecommendationCard key={rec.rank} rec={rec} />
+                <RecommendationCard
+                  key={rec.rank}
+                  rec={rec}
+                  sessionId={sessionId}
+                  league={league}
+                  characterLevel={buildData.level}
+                />
               ))}
             </div>
           )}
@@ -423,10 +435,17 @@ const CATEGORY_STYLES: Record<string, { bg: string; badgeBg: string; text: strin
   qol:             { bg: 'bg-purple-900/30 border-purple-700', badgeBg: 'bg-purple-700', text: 'text-purple-300', label: 'Quality of Life' },
 };
 
-interface RecommendationCardProps { rec: Recommendation }
+interface RecommendationCardProps {
+  rec: Recommendation;
+  sessionId: string;
+  league: string;
+  characterLevel: number;
+}
 
-function RecommendationCard({ rec }: RecommendationCardProps) {
+function RecommendationCard({ rec, sessionId, league, characterLevel }: RecommendationCardProps) {
   const [expanded, setExpanded] = useState(false);
+  /** null = not voted yet, 'up' | 'down' = voted */
+  const [voted, setVoted] = useState<'up' | 'down' | null>(null);
   const style = CATEGORY_STYLES[rec.category] ?? CATEGORY_STYLES.qol;
 
   const dpsDelta = rec.deltas['dps'] ?? rec.deltas['total_dps'] ?? null;
@@ -436,6 +455,43 @@ function RecommendationCard({ rec }: RecommendationCardProps) {
   const fireResDelta  = rec.deltas['fire_res'] ?? null;
   const coldResDelta  = rec.deltas['cold_res'] ?? null;
   const lightResDelta = rec.deltas['lightning_res'] ?? null;
+
+  /** Submit a thumbs-up or thumbs-down vote. */
+  async function handleVote(vote: 'up' | 'down') {
+    if (voted !== null) return; // already voted
+    setVoted(vote); // optimistically update UI
+    await submitFeedback({
+      session_id: sessionId,
+      recommendation_rank: rec.rank,
+      vote,
+      context: {
+        archetype_damage: '',
+        archetype_defense: '',
+        archetype_playstyle: '',
+        character_level: characterLevel,
+        league,
+        recommendation_category: rec.category,
+        slot: rec.slot,
+        suggested_item: rec.suggestedItem,
+        dps_delta: dpsDelta,
+        ehp_delta: ehpDelta,
+        price_divine: rec.priceDivine,
+      },
+    });
+  }
+
+  /** Fire trade-click tracking before opening the trade URL. */
+  async function handleTradeClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    e.preventDefault();
+    const url = rec.tradeUrl;
+    void trackTradeClick({
+      session_id: sessionId,
+      recommendation_rank: rec.rank,
+      suggested_item: rec.suggestedItem,
+      league,
+    });
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 
   return (
     <div
@@ -517,10 +573,11 @@ function RecommendationCard({ rec }: RecommendationCardProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid={`trade-link-${rec.rank}`}
+                onClick={handleTradeClick}
                 className="text-xs bg-amber-600 hover:bg-amber-500 text-gray-950 font-semibold
                            px-3 py-1.5 rounded transition-colors"
               >
-                Search on Trade â†—
+                Search on Trade ↗
               </a>
             )}
             {rec.wikiUrl && (
@@ -547,27 +604,46 @@ function RecommendationCard({ rec }: RecommendationCardProps) {
             )}
           </div>
 
-          {/* D5.4 Feedback buttons â€” disabled until M6 */}
-          <div className="flex items-center gap-2 pt-1">
+          {/* D6.3 Feedback buttons */}
+          <div className="flex items-center gap-2 pt-1" data-testid={`feedback-${rec.rank}`}>
             <span className="text-xs text-gray-500">Was this helpful?</span>
             <button
               type="button"
-              disabled
-              title="Feedback coming in M6"
-              className="text-sm px-2 py-0.5 rounded bg-gray-800 text-gray-600 cursor-not-allowed"
-              aria-label="Thumbs up feedback (coming soon)"
+              disabled={voted !== null}
+              onClick={() => void handleVote('up')}
+              aria-label="Thumbs up — helpful"
+              aria-pressed={voted === 'up'}
+              data-testid={`vote-up-${rec.rank}`}
+              className={`text-sm px-2 py-0.5 rounded transition-colors ${
+                voted === 'up'
+                  ? 'bg-green-700 text-white cursor-default'
+                  : voted !== null
+                    ? 'bg-gray-800 text-gray-600 cursor-not-allowed opacity-50'
+                    : 'bg-gray-700 hover:bg-green-700/60 text-gray-300 cursor-pointer'
+              }`}
             >
-              ðŸ‘
+              👍
             </button>
             <button
               type="button"
-              disabled
-              title="Feedback coming in M6"
-              className="text-sm px-2 py-0.5 rounded bg-gray-800 text-gray-600 cursor-not-allowed"
-              aria-label="Thumbs down feedback (coming soon)"
+              disabled={voted !== null}
+              onClick={() => void handleVote('down')}
+              aria-label="Thumbs down — not helpful"
+              aria-pressed={voted === 'down'}
+              data-testid={`vote-down-${rec.rank}`}
+              className={`text-sm px-2 py-0.5 rounded transition-colors ${
+                voted === 'down'
+                  ? 'bg-red-700 text-white cursor-default'
+                  : voted !== null
+                    ? 'bg-gray-800 text-gray-600 cursor-not-allowed opacity-50'
+                    : 'bg-gray-700 hover:bg-red-700/60 text-gray-300 cursor-pointer'
+              }`}
             >
-              ðŸ‘Ž
+              👎
             </button>
+            {voted !== null && (
+              <span className="text-xs text-gray-500 ml-1">Thanks for your feedback!</span>
+            )}
           </div>
         </div>
       )}

@@ -5,9 +5,11 @@ description = "Home of Exile backend API"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "asyncpg>=0.30",
     "fastapi>=0.115",
     "httpx>=0.28",
     "pydantic-settings>=2.7",
+    "slowapi>=0.1.9",
     "uvicorn[standard]>=0.41.0",
 ]
 

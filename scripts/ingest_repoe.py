@@ -106,7 +106,7 @@ def main() -> None:
         for filename in _FILES:
             try:
                 download_file(client, filename, _OUTPUT_DIR)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"  FAILED: {exc}", file=sys.stderr)
                 success = False
 
