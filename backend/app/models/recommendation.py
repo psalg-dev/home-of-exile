@@ -1,0 +1,171 @@
+"""Pydantic models for the M4 simulation loop and recommendation engine.
+
+These models describe simulation results, critical build issues, scored
+recommendations, and the API request/response types for the
+``/api/v1/recommendations`` endpoint.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from app.models.calculation import CalculationResult
+from app.models.candidate import BuildData, CandidateGem, CandidateItem
+
+# ---------------------------------------------------------------------------
+# Simulation result
+# ---------------------------------------------------------------------------
+
+
+class SimulationResult(BaseModel):
+    """Result of simulating a single candidate swap against the baseline.
+
+    Attributes:
+        slot: Equipment slot or skill-group slot that was swapped.
+        candidate: The candidate item or gem that was evaluated.
+        baseline_stats: Calculated stats *before* the swap.
+        modified_stats: Calculated stats *after* the swap.
+        deltas: Mapping of stat name → numeric change (positive = better).
+        price_divine: Price in divine orbs; ``None`` if unpriced.
+        price_uncertain: ``True`` when price is estimated (not from live data).
+    """
+
+    slot: str
+    candidate: CandidateItem | CandidateGem
+    baseline_stats: CalculationResult
+    modified_stats: CalculationResult
+    deltas: dict[str, float] = Field(default_factory=dict)
+    price_divine: float | None = Field(default=None)
+    price_uncertain: bool = Field(default=False)
+
+
+# ---------------------------------------------------------------------------
+# Critical issue
+# ---------------------------------------------------------------------------
+
+
+class CriticalIssue(BaseModel):
+    """A detected critical flaw in the current build configuration.
+
+    Attributes:
+        category: Issue type identifier.
+        severity: ``'critical'`` or ``'warning'``.
+        description: Human-readable description of the issue.
+        affected_stat: Stat name related to the issue (e.g. ``'fire_res'``).
+        current_value: Observed value of the affected stat.
+        target_value: Expected or minimum acceptable value.
+    """
+
+    category: str = Field(
+        description=(
+            "One of: uncapped_res, low_life, no_movement, "
+            "dead_link, wasted_points."
+        )
+    )
+    severity: str = Field(
+        default="warning",
+        description="'critical' or 'warning'.",
+    )
+    description: str
+    affected_stat: str
+    current_value: float
+    target_value: float
+
+
+# ---------------------------------------------------------------------------
+# Recommendation
+# ---------------------------------------------------------------------------
+
+
+class Recommendation(BaseModel):
+    """A single ranked upgrade recommendation.
+
+    Attributes:
+        rank: Position in the ranked list (1 = best).
+        category: Upgrade category label.
+        slot: Equipment or gem slot.
+        current_item: Display name of the currently equipped item.
+        suggested_item: Display name of the suggested upgrade.
+        deltas: Stat deltas from the simulation.
+        price_divine: Estimated cost in divine orbs (``None`` if unknown).
+        efficiency_score: DPS gain per divine orb (``None`` if no price).
+        explanation: Template-rendered explanation string.
+        trade_url: Pre-filled trade site URL.
+        wiki_url: poewiki.net item page URL (optional).
+        ninja_url: poe.ninja price page URL (optional).
+        score: Computed score used for ranking.
+    """
+
+    rank: int = Field(ge=1, le=5)
+    category: str = Field(
+        description=(
+            "One of: critical_fix, power_upgrade, defense_upgrade, "
+            "qol, efficiency."
+        )
+    )
+    slot: str
+    current_item: str
+    suggested_item: str
+    deltas: dict[str, float] = Field(default_factory=dict)
+    price_divine: float | None = Field(default=None)
+    efficiency_score: float | None = Field(
+        default=None,
+        description="DPS gain per divine orb spent.",
+    )
+    explanation: str
+    trade_url: str
+    wiki_url: str | None = Field(default=None)
+    ninja_url: str | None = Field(default=None)
+    score: float
+
+
+# ---------------------------------------------------------------------------
+# API request / response
+# ---------------------------------------------------------------------------
+
+
+class RecommendRequest(BaseModel):
+    """Request body for ``POST /api/v1/recommendations``.
+
+    The caller provides a parsed build (``build``) for candidate generation
+    and critical-issue detection, plus a raw PoB code or XML for the LuaJIT
+    engine simulations.
+
+    Attributes:
+        build: Parsed :class:`~app.models.candidate.BuildData` from the PoB
+            parser (required for candidate generation & issue detection).
+        build_code: URL-safe base64 PoB export code.
+        build_xml: Raw PoB XML (alternative to ``build_code``).
+        league: League name for live poe.ninja pricing.
+        max_candidates_per_slot: How many top candidates to simulate per
+            slot (default 10; higher = slower but more thorough).
+    """
+
+    build: BuildData
+    build_code: str | None = Field(default=None)
+    build_xml: str | None = Field(default=None)
+    league: str = Field(default="Settlers")
+    max_candidates_per_slot: int = Field(default=10, ge=1, le=20)
+
+    def model_post_init(self, __context: object) -> None:
+        """Validate that at least one build source is provided."""
+        if not self.build_code and not self.build_xml:
+            raise ValueError(
+                "Either 'build_code' or 'build_xml' must be provided."
+            )
+
+
+class RecommendResponse(BaseModel):
+    """Response body for ``POST /api/v1/recommendations``.
+
+    Attributes:
+        recommendations: Up to 5 ranked upgrade recommendations.
+        critical_issues: Detected critical build issues (may be empty).
+        simulation_count: Total number of swaps simulated.
+        elapsed_seconds: Wall-clock time for the full simulation run.
+    """
+
+    recommendations: list[Recommendation] = Field(default_factory=list)
+    critical_issues: list[CriticalIssue] = Field(default_factory=list)
+    simulation_count: int = Field(default=0)
+    elapsed_seconds: float = Field(default=0.0)

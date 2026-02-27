@@ -14,6 +14,8 @@ Always use the Context7 MCP tool to make sure you use up to date information.
 
 Always start implementation work for a milestone on a new git branch named after the milestone, branching from branch "dev". Before branching, make sure to pull latest changes from remote. 
 
+Before pushing to remote, make sure to run all tests and linters locally and fix any issues that arise. You should also make sure to write new tests for any new functionality that you add as part of the implementation.
+
 When you have completed the implementation, create a pull request to merge your branch into "dev". The title of the pull request should be the name of the milestone. The description of the pull request should be a summary of the work you did to implement the milestone, including any relevant details or challenges you faced.
 Monitor the pull request for any failing checks or actions and fix any issues that arise. if all checks pass, merge the pull request into dev. 
 

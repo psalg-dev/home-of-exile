@@ -27,6 +27,8 @@ export default function HomePage() {
         // Map can't be JSON serialised directly
         items: Object.fromEntries(buildData.items),
       }));
+      // Persist raw PoB code so BuildPage can send it to the simulation engine
+      sessionStorage.setItem('pobCode', pobCode.trim());
       void navigate('/build');
     } catch (err) {
       if (err instanceof PobDecodeError || err instanceof PobParseError) {
