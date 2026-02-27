@@ -216,7 +216,7 @@ def _detect_damage_type(build: BuildData) -> str:
     # Include the ascendancy name as a text signal.
     asc_lower = build.ascendancy.lower()
 
-    scores: dict[str, int] = {dt: 0 for dt in _DAMAGE_KEYWORDS}
+    scores: dict[str, int] = dict.fromkeys(_DAMAGE_KEYWORDS, 0)
 
     for damage_type, keywords in _DAMAGE_KEYWORDS.items():
         scores[damage_type] += _keyword_score(gem_text, keywords)
@@ -259,7 +259,7 @@ def _detect_defense_style(build: BuildData) -> str:
     if es > 0 and life < es * 0.35:
         return "lowlife"
 
-    # ES-based: ES is at least 3× life
+    # ES-based: ES is at least 3x life
     if es >= life * 3 and es > 500:
         return "es"
 
