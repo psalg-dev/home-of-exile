@@ -36,6 +36,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Build
+        run: npm run build
+
   backend-lint:
     name: Backend — lint & typecheck
     runs-on: ubuntu-latest
@@ -58,6 +61,9 @@ jobs:
 
       - name: Ruff lint
         run: uv run ruff check app/
+
+      - name: Ruff lint (scripts)
+        run: uv run ruff check ../scripts/
 
       - name: Mypy type-check
         run: uv run mypy app/
