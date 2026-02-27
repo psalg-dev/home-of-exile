@@ -41,6 +41,10 @@ class FeedbackContext(BaseModel):
     dps_delta: float | None = Field(default=None)
     ehp_delta: float | None = Field(default=None)
     price_divine: float | None = Field(default=None)
+    explanation_source: str = Field(
+        default="template",
+        description="'llm' or 'template' — which explanation was shown.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +64,7 @@ class FeedbackRequest(BaseModel):
 
     session_id: str = Field(min_length=1, max_length=128)
     recommendation_rank: int = Field(ge=1, le=5)
-    vote: str = Field(pattern="^(up|down)$")
+    vote: str = Field(pattern="^(up|down|wrong_explanation)$")
     context: FeedbackContext = Field(default_factory=FeedbackContext)
 
 

@@ -44,6 +44,8 @@ export interface Recommendation {
   priceDivine: number | null;
   efficiencyScore: number | null;
   explanation: string;
+  /** Whether explanation came from LLM or template. */
+  explanationSource: 'llm' | 'template';
   tradeUrl: string;
   wikiUrl: string | null;
   ninjaUrl: string | null;
@@ -63,6 +65,8 @@ export interface RecommendRequest {
   league?: string;
   /** How many top candidates to simulate per slot (1–20). */
   max_candidates_per_slot?: number;
+  /** Frontend session UUID for A/B group assignment. */
+  session_id?: string;
 }
 
 export interface RecommendResponse {

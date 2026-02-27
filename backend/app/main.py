@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from app.api.v1.admin import router as admin_router
 from app.api.v1.analyze import router as analyze_router
 from app.api.v1.calculate import router as calculate_router
 from app.api.v1.candidates import router as candidates_router
@@ -126,3 +127,4 @@ app.include_router(candidates_router)
 app.include_router(recommendations_router)
 app.include_router(analyze_router)
 app.include_router(feedback_router)
+app.include_router(admin_router)

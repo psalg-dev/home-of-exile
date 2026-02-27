@@ -19,6 +19,8 @@ export interface FeedbackContext {
   dps_delta: number | null;
   ehp_delta: number | null;
   price_divine: number | null;
+  /** Whether explanation came from LLM or template — used for A/B analysis. */
+  explanation_source: string;
 }
 
 // ---- Feedback request / response -------------------------------------------
@@ -26,7 +28,7 @@ export interface FeedbackContext {
 export interface FeedbackRequest {
   session_id: string;
   recommendation_rank: number;
-  vote: 'up' | 'down';
+  vote: 'up' | 'down' | 'wrong_explanation';
   context: FeedbackContext;
 }
 

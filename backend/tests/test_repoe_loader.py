@@ -23,7 +23,7 @@ skip_if_no_data = pytest.mark.skipif(
 def test_load_base_items_returns_over_500_entries() -> None:
     """load_base_items() should return more than 500 entries."""
     # Import inside test to avoid import-time side effects during collection
-    from app.services.repoe_loader import load_base_items  # noqa: PLC0415
+    from app.services.repoe_loader import load_base_items
 
     items = load_base_items()
     assert len(items) > 500, f"Expected >500 items, got {len(items)}"
@@ -32,7 +32,7 @@ def test_load_base_items_returns_over_500_entries() -> None:
 @skip_if_no_data
 def test_load_gems_returns_entries() -> None:
     """load_gems() should return a non-empty dict."""
-    from app.services.repoe_loader import load_gems  # noqa: PLC0415
+    from app.services.repoe_loader import load_gems
 
     gems = load_gems()
     assert len(gems) > 0
@@ -41,7 +41,7 @@ def test_load_gems_returns_entries() -> None:
 @skip_if_no_data
 def test_load_mods_returns_entries() -> None:
     """load_mods() should return a non-empty dict."""
-    from app.services.repoe_loader import load_mods  # noqa: PLC0415
+    from app.services.repoe_loader import load_mods
 
     mods = load_mods()
     assert len(mods) > 0

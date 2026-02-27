@@ -27,17 +27,13 @@ from app.models.candidate import (
     Archetype,
     BuildData,
     BuildGem,
-    BuildItem,
     BuildSkillGroup,
     BuildStats,
     CandidateItem,
-    CandidatesRequest,
     CharacterAttrs,
     ItemAttrReq,
-    ValidationResult,
 )
 from app.services.archetype import (
-    archetype_mod_keywords,
     detect_archetype,
     score_mod_relevance,
 )
@@ -47,7 +43,6 @@ from app.services.candidate_generator import (
     run_pipeline,
     validate_constraints,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared build fixtures
@@ -651,8 +646,8 @@ class TestCandidatesEndpoint:
         }
 
         # Patch repoe to return a Silken Hood with Helmet class
-        from app.services import repoe_loader
         from app.models.repoe import RePoEBaseItem
+        from app.services import repoe_loader
         mock_base_items: dict[str, RePoEBaseItem] = {
             "Metadata/Items/Armours/Helmets/SilkenHood": RePoEBaseItem(
                 name="Silken Hood",

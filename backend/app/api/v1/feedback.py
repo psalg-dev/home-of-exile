@@ -46,10 +46,11 @@ async def submit_feedback(
     body: FeedbackRequest,
     request: Request,
 ) -> FeedbackResponse:
-    """Submit a thumbs-up or thumbs-down vote for a recommendation.
+    """Submit a thumbs-up, thumbs-down, or wrong-explanation report.
 
-    A session may only vote once per recommendation rank.  If it has
-    already voted, the endpoint returns HTTP 409.
+    For ``up``/``down`` votes, a session may only vote once per
+    recommendation rank.  ``wrong_explanation`` reports are always accepted
+    (they are a separate signal and do not block a thumbs vote).
 
     Args:
         body: Feedback payload including session ID, rank, vote, context.
@@ -60,16 +61,19 @@ async def submit_feedback(
         whether the vote was stored.
 
     Raises:
-        HTTPException 409: If the session already voted on this rank.
+        HTTPException 409: If the session already cast a thumbs vote on
+            this rank (only for ``up``/``down`` votes).
     """
-    existing = await count_session_feedback(
-        body.session_id, body.recommendation_rank
-    )
-    if existing > 0:
-        raise HTTPException(
-            status_code=409,
-            detail="You have already voted on this recommendation.",
+    # Duplicate-vote guard only applies to thumbs votes, not wrong_explanation.
+    if body.vote in ("up", "down"):
+        existing = await count_session_feedback(
+            body.session_id, body.recommendation_rank
         )
+        if existing > 0:
+            raise HTTPException(
+                status_code=409,
+                detail="You have already voted on this recommendation.",
+            )
 
     ctx = body.context
     record = {
@@ -87,6 +91,7 @@ async def submit_feedback(
         "price_divine": ctx.price_divine,
         "vote": body.vote,
         "session_id": body.session_id,
+        "explanation_source": ctx.explanation_source,
     }
 
     stored = await insert_feedback(record)
