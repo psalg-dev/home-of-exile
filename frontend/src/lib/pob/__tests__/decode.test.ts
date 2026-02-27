@@ -16,8 +16,9 @@ import { PobDecodeError } from '../types';
 function encodeAsPobCode(xml: string): string {
   const encoded = new TextEncoder().encode(xml);
   const compressed = deflate(encoded);
-  // Convert Uint8Array to base64 using Buffer (Node.js)
-  const base64 = Buffer.from(compressed).toString('base64');
+  // Convert Uint8Array to base64 (browser-safe, no Node Buffer dependency)
+  const binary = Array.from(compressed).map(b => String.fromCharCode(b)).join('');
+  const base64 = btoa(binary);
   // Convert to URL-safe base64 (PoB format)
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
