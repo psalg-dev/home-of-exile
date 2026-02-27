@@ -12,7 +12,10 @@ You must use Chrome Devtools to always inspect your work in the browser. An impl
 
 Always use the Context7 MCP tool to make sure you use up to date information.
 
-Always start implementation work for a milestone on a new git branch named after the milestone, branching from branch "dev". When you have completed the implementation, create a pull request to merge your branch into "dev". The title of the pull request should be the name of the milestone. The description of the pull request should be a summary of the work you did to implement the milestone, including any relevant details or challenges you faced.
+Always start implementation work for a milestone on a new git branch named after the milestone, branching from branch "dev". Before branching, make sure to pull latest changes from remote. 
+
+When you have completed the implementation, create a pull request to merge your branch into "dev". The title of the pull request should be the name of the milestone. The description of the pull request should be a summary of the work you did to implement the milestone, including any relevant details or challenges you faced.
+Monitor the pull request for any failing checks or actions and fix any issues that arise. if all checks pass, merge the pull request into dev. 
 
 During development, commit your work frequently. Also keep a todo list of tasks that you frequently update as you work on the implementation. This will help you stay organized and keep track of your progress. You should also use the todo list to keep track of any bugs or issues that you encounter during development, along with their status and any relevant details.
 
