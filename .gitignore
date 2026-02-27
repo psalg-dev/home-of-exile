@@ -1,0 +1,36 @@
+# Environment variables
+.env
+*.local
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Test artefacts
+coverage/
+.coverage
+htmlcov/
+playwright-report/
+test-results/
+blob-report/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
+
+# Docker
+docker-compose.override.yml

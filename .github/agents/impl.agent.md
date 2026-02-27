@@ -15,3 +15,6 @@ Always use the Context7 MCP tool to make sure you use up to date information.
 Always start implementation work for a milestone on a new git branch named after the milestone, branching from branch "dev". When you have completed the implementation, create a pull request to merge your branch into "dev". The title of the pull request should be the name of the milestone. The description of the pull request should be a summary of the work you did to implement the milestone, including any relevant details or challenges you faced.
 
 During development, commit your work frequently. Also keep a todo list of tasks that you frequently update as you work on the implementation. This will help you stay organized and keep track of your progress. You should also use the todo list to keep track of any bugs or issues that you encounter during development, along with their status and any relevant details.
+
+You MUST always use PowerShell Syntax for terminal commands since the development
+machine runs Windows. Do not use any other syntax for terminal commands.
