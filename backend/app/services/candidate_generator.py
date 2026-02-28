@@ -418,16 +418,24 @@ def _candidates_from_poe_ninja(
         List of candidate items sourced from poe.ninja.
     """
     base_items = load_base_items()
+    # Only include tradeable base items (same filter as _candidates_from_repoe).
+    # Excludes unique_only items (demigod trophies, etc.) and unreleased items
+    # so they cannot slip through as poe.ninja candidates.
+    _tradeable_states = {"released", "legacy"}
+    _tradeable_bases = {
+        k: v for k, v in base_items.items()
+        if not v.release_state or v.release_state in _tradeable_states
+    }
     # Build a lower-case base-name → item_class map for lookup.
     base_name_to_class: dict[str, str] = {
         v.name.lower(): v.item_class
-        for v in base_items.values()
+        for v in _tradeable_bases.values()
         if v.name
     }
     # Also map lower-case item ID → item_class
     id_to_class: dict[str, str] = {
         k.lower(): v.item_class
-        for k, v in base_items.items()
+        for k, v in _tradeable_bases.items()
     }
 
     candidates: list[CandidateItem] = []
