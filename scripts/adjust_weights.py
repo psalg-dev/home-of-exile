@@ -12,7 +12,7 @@ Usage
 -----
 ::
 
-    python scripts/adjust_weights.py --league Settlers --output weights.json
+    python scripts/adjust_weights.py --league Keepers --output weights.json
 
 Requirements
 ------------
@@ -25,7 +25,7 @@ Output format
 The output JSON has the following structure::
 
     {
-        "league": "Settlers",
+        "league": "Keepers",
         "generated_at": "2026-02-27T12:00:00Z",
         "min_votes_required": 50,
         "weights": {
@@ -175,7 +175,7 @@ def main() -> None:
     parser.add_argument(
         "--league",
         required=True,
-        help="League name to process (e.g. Settlers).",
+        help="League name to process (e.g. Keepers).",
     )
     parser.add_argument(
         "--output",

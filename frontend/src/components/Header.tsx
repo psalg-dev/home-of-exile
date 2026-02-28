@@ -5,8 +5,8 @@ import { NavLink } from 'react-router-dom';
 import { useLeague, type League } from '@/contexts/league-context';
 
 const LEAGUE_OPTIONS: { value: League; label: string }[] = [
-  { value: 'Settlers', label: 'Settlers (Current)' },
-  { value: 'Mercenaries', label: 'Mercenaries (Previous)' },
+  { value: 'Keepers', label: 'Keepers of the Flame (Current)' },
+  { value: 'Settlers', label: 'Settlers (Previous)' },
   { value: 'Standard', label: 'Standard' },
 ];
 

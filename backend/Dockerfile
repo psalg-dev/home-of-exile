@@ -30,6 +30,11 @@ RUN pip install uv --no-cache-dir
 # Copy PathOfBuilding source from the clone stage
 COPY --from=pob-clone /pob /pob
 
+# Apply local patches to the PoB source tree.
+# BuildOps.lua is patched to expose minion DPS stats (MinionTotalDPS etc.)
+# for summoner/minion builds where the player's own TotalDPS is always 0.
+COPY patches/BuildOps.lua /pob/src/API/BuildOps.lua
+
 # PoB engine environment — picked up by Settings.pob_src_dir
 ENV POB_SRC_DIR=/pob/src
 

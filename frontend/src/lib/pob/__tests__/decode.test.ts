@@ -10,6 +10,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { deflate } from 'pako';
 import { decodePobCode } from '../decode';
+import { parsePobXml } from '../parse';
 import { PobDecodeError } from '../types';
 
 /**
@@ -140,5 +141,42 @@ describe('decodePobCode – cws-dd real fixture', () => {
     const result = decodePobCode(raw);
     expect(result).toContain('<PathOfBuilding>');
     expect(result).toContain('</PathOfBuilding>');
+  });
+});
+
+describe('decodePobCode – phantasm-summoner real fixture (SkillSet format)', () => {
+  /**
+   * Reads the phantasm-summoner pob.txt fixture which uses the older PoB export
+   * format with a <SkillSet> wrapper, and verifies full decode + parse round-trip.
+   */
+  const fixturePath = resolve(__dirname, '../../../../../examples/keepers/phantasm-summoner/pob.txt');
+
+  it('decodes the phantasm-summoner pob.txt keeper fixture into valid PoB XML', () => {
+    const raw = readFileSync(fixturePath, 'utf-8');
+    const result = decodePobCode(raw);
+    expect(result).toContain('<PathOfBuilding>');
+    expect(result).toContain('</PathOfBuilding>');
+  });
+
+  it('parses the phantasm-summoner fixture into a valid BuildData', () => {
+    const raw = readFileSync(fixturePath, 'utf-8');
+    const xml = decodePobCode(raw);
+    const data = parsePobXml(xml);
+
+    expect(data.class).toBe('Witch');
+    expect(data.ascendancy).toBe('Necromancer');
+    expect(data.level).toBe(78);
+    expect(data.skillGroups.length).toBeGreaterThan(0);
+    // mainSocketGroup="7" in this build points to the Triggered Summon Phantasm group
+    expect(data.mainSkill).toBe('Triggered Summon Phantasm');
+  });
+
+  it('extracts life and energy shield stats from phantasm-summoner', () => {
+    const raw = readFileSync(fixturePath, 'utf-8');
+    const xml = decodePobCode(raw);
+    const data = parsePobXml(xml);
+
+    expect(data.stats.life).toBeGreaterThan(0);
+    expect(data.stats.energyShield).toBeGreaterThan(0);
   });
 });

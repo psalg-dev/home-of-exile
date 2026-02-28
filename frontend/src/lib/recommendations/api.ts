@@ -110,7 +110,7 @@ function serializeBuild(
  * @param build - Parsed build data.
  * @param buildCode - Raw PoB export code for the LuaJIT simulation engine.
  * @param itemsObj - Items as a plain object (from sessionStorage).
- * @param league - League name (default: ``'Settlers'``).
+ * @param league - League name (default: ``'Keepers'``).
  * @param sessionId - Frontend session UUID for A/B LLM assignment.
  * @returns Parsed {@link RecommendResponse} from the backend.
  * @throws Error on non-2xx HTTP response.
@@ -119,7 +119,7 @@ export async function fetchRecommendations(
   build: BuildData,
   buildCode: string,
   itemsObj: Record<string, Item> | undefined,
-  league = 'Settlers',
+  league = 'Keepers',
   sessionId?: string,
 ): Promise<RecommendResponse> {
   const body: Record<string, unknown> = {

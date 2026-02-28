@@ -32,5 +32,10 @@ Thumbs.db
 .vscode/settings.json
 *.swp
 
+# Playwright MCP artifacts
+.playwright-mcp/
+
 # Docker
 docker-compose.override.yml
+
+**/*.log

@@ -295,7 +295,7 @@ class CandidatesRequest(BaseModel):
         ),
     )
     league: str = Field(
-        default="Settlers",
+        default="Keepers",
         description="League name used to fetch live poe.ninja prices.",
     )
 

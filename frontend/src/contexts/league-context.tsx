@@ -5,7 +5,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
-export type League = 'Settlers' | 'Mercenaries' | 'Standard';
+export type League = 'Keepers' | 'Settlers' | 'Standard';
 
 interface LeagueContextValue {
   league: League;
@@ -15,7 +15,7 @@ interface LeagueContextValue {
 const LeagueContext = createContext<LeagueContextValue | null>(null);
 
 export function LeagueProvider({ children }: { children: ReactNode }) {
-  const [league, setLeague] = useState<League>('Settlers');
+  const [league, setLeague] = useState<League>('Keepers');
   return (
     <LeagueContext.Provider value={{ league, setLeague }}>
       {children}

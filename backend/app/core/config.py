@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://hoe:hoe@localhost:5432/hoe"
 
     # poe.ninja
-    poe_ninja_league: str = "Settlers"
+    poe_ninja_league: str = "Keepers"
 
     # RePoE data directory (relative to the backend/ directory)
     repoe_data_dir: str = "../data/repoe"

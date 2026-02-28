@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { decodePobCode } from '@/lib/pob/decode';
 import { parsePobXml } from '@/lib/pob/parse';
+import { MAX_POB_LENGTH, validatePobInput } from '@/lib/pob/validate';
 import type { BuildData } from '@/lib/pob/types';
 import { PobDecodeError, PobParseError } from '@/lib/pob/types';
 import LoadingOverlay from '@/components/LoadingOverlay';
@@ -25,26 +26,6 @@ const EXAMPLE_POB_CODE =
   'e83mmsj3ZdpAeLJc4RNhYY04bYwCOaFKZXA1_zpB3lih3w2zxlgJw-vNFliwJ2zNaJEFp' +
   '-eM9k3JJya_YAAFAaKngJWPxs3R9uNbx9lQeq-dsde-ayAd1l3wW8dm9K5IN9ZumOTdIQ' +
   '6SRpIwVqFnN4kzcc60JGpzDaiTwr6P9oz_A0BwAYQ';
-
-/** Reasonable upper bound — anything longer is suspicious. */
-const MAX_POB_LENGTH = 8_192;
-
-/**
- * Validate the raw PoB input before decoding.
- * Returns an error string, or null if input looks valid.
- */
-function validateInput(code: string): string | null {
-  const trimmed = code.trim();
-  if (!trimmed) return 'Please paste a PoB export code.';
-  if (trimmed.length < 20) return 'This looks too short to be a valid PoB code.';
-  if (trimmed.length > MAX_POB_LENGTH)
-    return 'This code is too long. Make sure you copied the right thing.';
-  // PoB codes are URL-safe base64: only [A-Za-z0-9\-_]
-  if (!/^[A-Za-z0-9\-_]+$/.test(trimmed)) {
-    return 'This does not look like a valid PoB code. Make sure you copied the base64 export from Path of Building.';
-  }
-  return null;
-}
 
 export default function HomePage() {
   const [pobCode, setPobCode] = useState('');
@@ -64,7 +45,7 @@ export default function HomePage() {
     e.preventDefault();
     setError(null);
 
-    const validationError = validateInput(pobCode);
+    const validationError = validatePobInput(pobCode);
     if (validationError) {
       setError(validationError);
       return;

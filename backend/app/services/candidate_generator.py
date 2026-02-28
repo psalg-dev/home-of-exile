@@ -41,6 +41,7 @@ from app.models.candidate import (
     ValidationResult,
 )
 from app.services.archetype import (
+    archetype_template_mods,
     extract_key_mods,
     score_mod_relevance,
 )
@@ -492,6 +493,16 @@ def _candidates_from_repoe(
     base_items = load_base_items()
     candidates: list[CandidateItem] = []
 
+    # Pre-compute archetype template mods once for the entire slot — these
+    # represent the best explicit mods a well-crafted rare of this archetype
+    # would carry.  They are injected into the simulation item text so that
+    # PoB recalculates with realistic upgrade potential rather than an empty
+    # base type (which produces zero stat deltas against the current gear).
+    template_mods = archetype_template_mods(archetype)
+    template_relevance = score_mod_relevance(template_mods, archetype)
+    # Ensure at least a minimal relevance value for items that get template mods
+    template_relevance = max(template_relevance, 0.5)
+
     for _item_id, item in base_items.items():
         if item.item_class not in target_classes:
             continue
@@ -505,10 +516,14 @@ def _candidates_from_repoe(
             "int": int(item.requirements.get("int", 0) or 0),
         })
 
-        # Score implicit mods for archetype relevance.
-        all_mods = list(item.implicit_mods)
-        relevance = score_mod_relevance(all_mods, archetype)
-        key_mods = extract_key_mods(all_mods, archetype)
+        # Use archetype template mods for simulation (represents the best
+        # explicit mods this base type could carry for the archetype).
+        # Include any implicit mods the base has as additional context.
+        implicit_mods = list(item.implicit_mods)
+        implicit_relevance = score_mod_relevance(implicit_mods, archetype)
+        # If the item has archetype-relevant implicits, score them extra.
+        relevance = max(template_relevance, implicit_relevance)
+        key_mods = template_mods[:]
 
         candidates.append(
             CandidateItem(

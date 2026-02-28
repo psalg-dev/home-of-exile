@@ -148,7 +148,7 @@ class RecommendRequest(BaseModel):
     build: BuildData
     build_code: str | None = Field(default=None)
     build_xml: str | None = Field(default=None)
-    league: str = Field(default="Settlers")
+    league: str = Field(default="Keepers")
     max_candidates_per_slot: int = Field(default=10, ge=1, le=20)
     session_id: str | None = Field(
         default=None,

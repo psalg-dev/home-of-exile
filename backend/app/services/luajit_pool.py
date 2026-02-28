@@ -27,13 +27,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Timeout for a single RPC round-trip (seconds)
-_RPC_TIMEOUT: float = 15.0
+_RPC_TIMEOUT: float = 60.0
+
+# Timeout waiting to acquire an idle worker from the pool queue (seconds).
+# Must be larger than (max_batch_size / pool_size) × per_swap_time to avoid
+# premature timeouts when all workers are busy processing a large batch.
+_POOL_ACQUIRE_TIMEOUT: float = 300.0
 
 # Max calculations before recycling a worker to avoid memory leaks
 _MAX_CALCS_PER_WORKER: int = 500
 
 # Max time to wait for the LuaJIT ready banner on startup (seconds)
-_STARTUP_TIMEOUT: float = 60.0
+_STARTUP_TIMEOUT: float = 120.0
 
 # Stat fields to request from PoB for every calculation
 _DEFAULT_STAT_FIELDS: list[str] = [
@@ -51,6 +56,14 @@ _DEFAULT_STAT_FIELDS: list[str] = [
     "FullDPS",
     "CombinedDPS",
     "AverageDamage",
+    # Minion/summoner builds: player TotalDPS is 0; these fields expose
+    # the minion's DPS via build.calcsTab.mainEnv.minion.output
+    "MinionTotalDPS",
+    "MinionFullDPS",
+    "MinionCombinedDPS",
+    "MinionAverageDamage",
+    "MinionLife",
+    "MinionEnergyShield",
 ]
 
 
@@ -579,12 +592,12 @@ class LuaJITPoolManager:
         try:
             idx = await asyncio.wait_for(
                 self._idle.get(),
-                timeout=_RPC_TIMEOUT,
+                timeout=_POOL_ACQUIRE_TIMEOUT,
             )
         except TimeoutError as exc:
             raise LuaJITWorkerError(
                 "No idle LuaJIT worker available within "
-                f"{_RPC_TIMEOUT:.0f}s timeout"
+                f"{_POOL_ACQUIRE_TIMEOUT:.0f}s timeout"
             ) from exc
         return idx, self._workers[idx]
 
@@ -632,6 +645,7 @@ class LuaJITPoolManager:
             LuaJITWorkerError: On calculation failure or timeout.
         """
         idx, worker = await self._acquire()
+        _restart_queued = False
 
         try:
             # Proactively recycle if needed
@@ -642,13 +656,25 @@ class LuaJITPoolManager:
             result = await worker.calculate(build_xml)
             return result
         except LuaJITWorkerError:
-            # Fire-and-forget restart so the worker index stays valid
-            task = asyncio.create_task(self._restart_worker(idx))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            _restart_queued = True
             raise
         finally:
-            self._release(idx)
+            if _restart_queued:
+                # Keep the worker index OUT of the idle queue until restart
+                # finishes.  If we released immediately, the next task would
+                # pick up a broken worker and trigger another restart, causing
+                # an exponential restart storm.
+                async def _restart_then_release_calc(i: int) -> None:
+                    try:
+                        await self._restart_worker(i)
+                    finally:
+                        self._release(i)
+
+                task = asyncio.create_task(_restart_then_release_calc(idx))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+            else:
+                self._release(idx)
 
     async def calculate_swap(
         self,
@@ -670,6 +696,7 @@ class LuaJITPoolManager:
             LuaJITWorkerError: On failure.
         """
         idx, worker = await self._acquire()
+        _restart_queued = False
 
         try:
             if worker.needs_recycle or not worker.is_ready:
@@ -681,12 +708,25 @@ class LuaJITPoolManager:
             )
             return result
         except LuaJITWorkerError:
-            task = asyncio.create_task(self._restart_worker(idx))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            _restart_queued = True
             raise
         finally:
-            self._release(idx)
+            if _restart_queued:
+                # Keep the worker index OUT of the idle queue until restart
+                # finishes.  If we released immediately, the next task would
+                # pick up a broken worker and trigger another restart, causing
+                # an exponential restart storm.
+                async def _restart_then_release_swap(i: int) -> None:
+                    try:
+                        await self._restart_worker(i)
+                    finally:
+                        self._release(i)
+
+                task = asyncio.create_task(_restart_then_release_swap(idx))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+            else:
+                self._release(idx)
 
     async def calculate_swap_batch(
         self,

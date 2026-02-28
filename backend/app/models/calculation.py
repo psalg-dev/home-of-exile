@@ -178,11 +178,16 @@ class CalculationResult(BaseModel):
             return int(float(v)) if v is not None else 0
 
         # DPS: prefer CombinedDPS → TotalDPS → FullDPS → AverageDamage
+        # For minion/summoner builds, player DPS is 0 — fall back to minion DPS
+        # (MinionCombinedDPS / MinionTotalDPS from BuildOps minion augmentation)
         dps = (
             _float("CombinedDPS")
             or _float("TotalDPS")
             or _float("FullDPS")
             or _float("AverageDamage")
+            or _float("MinionCombinedDPS")
+            or _float("MinionTotalDPS")
+            or _float("MinionAverageDamage")
         )
 
         return cls(

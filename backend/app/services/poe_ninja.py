@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 # Cache TTL — poe.ninja asks for polite access; 1 h is reasonable.
 _CACHE_TTL = timedelta(hours=1)
 
-# Base URL for poe.ninja API v3
-_BASE_URL = "https://poe.ninja/api/data"
+# Base URL for poe.ninja economy API
+_BASE_URL = "https://poe.ninja/poe1/api/economy/stash/current"
 
 # Item categories to fetch for item prices
 _ITEM_TYPES = [
@@ -79,6 +79,7 @@ class PoeNinjaClient:
         self._http = httpx.AsyncClient(
             timeout=10.0,
             headers={"X-Powered-By": "home-of-exile"},
+            follow_redirects=True,
         )
         # Cache: key = (league, type_str) → (fetched_at, payload)
         self._cache: dict[tuple[str, str], tuple[datetime, Any]] = {}
@@ -134,7 +135,7 @@ class PoeNinjaClient:
                 _, data = self._cache[cache_key]
             else:
                 data = await self._fetch(
-                    f"{_BASE_URL}/ItemOverview",
+                    f"{_BASE_URL}/item/overview",
                     {"league": league, "type": item_type},
                 )
                 self._cache[cache_key] = (datetime.now(UTC), data)
@@ -168,7 +169,7 @@ class PoeNinjaClient:
             _, data = self._cache[cache_key]
         else:
             data = await self._fetch(
-                f"{_BASE_URL}/CurrencyOverview",
+                f"{_BASE_URL}/currency/overview",
                 {"league": league, "type": "Currency"},
             )
             self._cache[cache_key] = (datetime.now(UTC), data)

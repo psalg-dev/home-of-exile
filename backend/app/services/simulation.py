@@ -305,10 +305,11 @@ def _compute_ehp(stats: CalculationResult, defense_style: str) -> float:
     es = float(stats.energy_shield)
     if defense_style in ("es", "ci", "lowlife"):
         return es
-    if defense_style == "hybrid":
-        return life + es
-    # default: life build
-    return life
+    # For life and hybrid builds, always include ES so that ES improvements
+    # from gear contribute to the EHP delta and score correctly.  On a pure
+    # life build ES is typically 0 so this has no effect; on mixed builds
+    # (e.g. life + ES from necromancer gear) it properly rewards ES upgrades.
+    return life + es
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +324,11 @@ def _build_item_text(candidate: CandidateItem) -> str:
     name for known uniques and look them up in its internal database.
     For rare base items, key mods are included as explicit mods.
 
+    PoB's ``Item.lua`` parser requires **two** name lines for Rare and
+    Unique rarity items (custom/title name + base type name).  For
+    RePoE-sourced candidates the ``name`` field is always empty, so we
+    inject a generic placeholder to satisfy the two-line requirement.
+
     Args:
         candidate: Candidate item to convert.
 
@@ -333,8 +339,18 @@ def _build_item_text(candidate: CandidateItem) -> str:
     lines = [f"Rarity: {rarity_label}"]
 
     if candidate.name:
+        # Unique / named-rare case: name on line 2, base on line 3.
         lines.append(candidate.name)
-    if candidate.base_name:
+        if candidate.base_name and candidate.base_name != candidate.name:
+            lines.append(candidate.base_name)
+    elif candidate.base_name:
+        rarity_lower = rarity_label.lower()
+        if rarity_lower in ("rare", "unique"):
+            # PoB requires a two-line header for Rare/Unique items.
+            # Line 2 = custom/title name, line 3 = base type name.
+            # Since RePoE base-item candidates carry no custom name we
+            # supply a generic placeholder so the parser sets baseName.
+            lines.append("Candidate Item")
         lines.append(candidate.base_name)
 
     lines.append("--------")
@@ -412,12 +428,10 @@ async def simulate_upgrades(
             swap_specs.append((slot_group.slot, candidate, item_text))
 
     for gem_group in gem_candidates:
-        # Only simulate support gem swaps (skill alternatives need a different
-        # approach -- include top-3 support candidates for now).
-        top_supports = gem_group.support_candidates[:3]
-        for gem_candidate in top_supports:
-            gem_text = _build_gem_text(gem_candidate)
-            swap_specs.append((gem_group.slot, gem_candidate, gem_text))
+        # TODO: gem swaps cannot use ``add_item_text`` (an equipment-only
+        # API).  Support gem changes require modifying the skill group XML
+        # in the build, which is not yet implemented.  Skip for now.
+        _ = gem_group  # noqa: F841
 
     if not swap_specs:
         return []
@@ -435,7 +449,7 @@ async def simulate_upgrades(
     results: list[SimulationResult] = []
     for (slot, swap_candidate, _item_text), raw in zip(swap_specs, raw_results, strict=True):
         if isinstance(raw, dict) and "error" in raw and len(raw) == 1:
-            logger.debug(
+            logger.warning(
                 "Swap failed for %s / %s: %s",
                 slot,
                 getattr(swap_candidate, "name", getattr(swap_candidate, "base_name", "?")),
@@ -580,7 +594,7 @@ def build_recommendations(
     issues: list[CriticalIssue],
     build: BuildData,
     archetype: Archetype,
-    league: str = "Settlers",
+    league: str = "Keepers",
 ) -> list[Recommendation]:
     """Select the top 5 recommendations (sync, template-only).
 
@@ -614,7 +628,7 @@ def _select_recommendations(
     issues: list[CriticalIssue],
     build: BuildData,
     archetype: Archetype,
-    league: str = "Settlers",
+    league: str = "Keepers",
 ) -> list[Recommendation]:
     """Core synchronous recommendation selection with diversity constraints.
 
@@ -767,7 +781,7 @@ async def build_recommendations_async(
     issues: list[CriticalIssue],
     build: BuildData,
     archetype: Archetype,
-    league: str = "Settlers",
+    league: str = "Keepers",
     session_id: str | None = None,
     llm_service: LLMExplainerService | None = None,
 ) -> list[Recommendation]:

@@ -457,6 +457,84 @@ def extract_key_mods(
     return relevant
 
 
+def archetype_template_mods(archetype: Archetype) -> list[str]:
+    """Return representative explicit mods for archetype-based simulation.
+
+    These are plausible top-roll explicit mods that represent a well-crafted
+    item for the given archetype.  They are used by the candidate pipeline to
+    construct item texts for PoB simulation so that stat deltas reflect real
+    upgrade potential rather than only base-type stat differences.
+
+    The mod texts must match PoB's internal mod parser (PoE clipboard format).
+
+    Args:
+        archetype: Build archetype.
+
+    Returns:
+        List of up to 5 PoE-format mod strings for item simulation.
+    """
+    # Universal defensive mods — almost every build wants these.
+    mods: list[str] = [
+        "+80 to maximum Life",
+        "+30% to Fire Resistance",
+    ]
+
+    # Damage-type mods — chosen to reflect top crafted affixes.
+    damage_mods: dict[str, list[str]] = {
+        "minion": [
+            "Minions deal 50% increased Damage",
+            "Minions have 40% increased maximum Life",
+        ],
+        "fire": [
+            "50% increased Fire Damage",
+            "+30% to Fire Damage over Time Multiplier",
+        ],
+        "cold": [
+            "50% increased Cold Damage",
+            "+30% to Cold Resistance",
+        ],
+        "lightning": [
+            "50% increased Lightning Damage",
+            "+30% to Lightning Resistance",
+        ],
+        "chaos": [
+            "50% increased Chaos Damage",
+            "+40% to Chaos Resistance",
+        ],
+        "physical": [
+            "50% increased Physical Damage",
+            "Attacks have 20% chance to deal Double Damage",
+        ],
+    }
+    mods.extend(damage_mods.get(archetype.damage_type, []))
+
+    # Playstyle mods — small secondary bonuses.
+    playstyle_mods: dict[str, list[str]] = {
+        "summoner": [
+            "15% increased Effect of Non-Curse Auras from your Skills",
+        ],
+        "caster": [
+            "15% increased Cast Speed",
+        ],
+        "melee": [
+            "15% increased Attack Speed",
+        ],
+        "ranged": [
+            "15% increased Attack Speed with Ranged Weapons",
+        ],
+    }
+    mods.extend(playstyle_mods.get(archetype.playstyle, []))
+
+    # Deduplicate while preserving order, cap at 5.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for m in mods:
+        if m not in seen:
+            seen.add(m)
+            unique.append(m)
+    return unique[:5]
+
+
 def _normalise_mod_line(raw: str) -> str:
     """Replace numeric values in a mod line with '#' for matching.
 

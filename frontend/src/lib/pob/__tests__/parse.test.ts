@@ -237,6 +237,63 @@ describe('parsePobXml', () => {
     });
   });
 
+  describe('SkillSet wrapper (older PoB export format)', () => {
+    const SKILLSET_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<PathOfBuilding>
+  <Build level="78" className="Witch" ascendClassName="Necromancer" characterName="" bandit="None" mainSocketGroup="1">
+    <PlayerStat stat="Life" value="3663"/>
+    <PlayerStat stat="EnergyShield" value="792"/>
+    <PlayerStat stat="CombinedDPS" value="0"/>
+    <PlayerStat stat="FireResist" value="75"/>
+    <PlayerStat stat="ColdResist" value="75"/>
+    <PlayerStat stat="LightningResist" value="75"/>
+    <PlayerStat stat="ChaosResist" value="0"/>
+  </Build>
+  <Skills activeSkillSet="1">
+    <SkillSet id="1">
+      <Skill slot="Body Armour" enabled="true" label="">
+        <Gem nameSpec="Summon Raging Spirit" skillId="SummonRagingSpirit" gemId="Metadata/Items/Gems/SkillGemSummonRagingSpirit" level="18" quality="20" enabled="true"/>
+        <Gem nameSpec="Combustion" skillId="SupportCombustion" gemId="Metadata/Items/Gems/SupportGemChanceToIgnite" level="10" quality="0" enabled="true"/>
+      </Skill>
+      <Skill slot="Helmet" enabled="true" label="">
+        <Gem nameSpec="Raise Phantasm" skillId="RaisePhantasm" gemId="Metadata/Items/Gems/SkillGemRaisePhantasm" level="20" quality="20" enabled="true"/>
+      </Skill>
+    </SkillSet>
+  </Skills>
+  <Tree>
+    <Spec nodes="10001 10002"/>
+  </Tree>
+  <Items/>
+</PathOfBuilding>`;
+
+    it('parses skill groups when Skills are wrapped in a SkillSet element', () => {
+      const data = parsePobXml(SKILLSET_XML);
+      expect(data.skillGroups).toHaveLength(2);
+    });
+
+    it('resolves mainSkill from the active SkillSet', () => {
+      const data = parsePobXml(SKILLSET_XML);
+      expect(data.mainSkill).toBe('Summon Raging Spirit');
+    });
+
+    it('identifies support gems inside a SkillSet correctly', () => {
+      const data = parsePobXml(SKILLSET_XML);
+      const bodyGroup = data.skillGroups[0];
+      expect(bodyGroup.gems[0].isSupport).toBe(false);
+      expect(bodyGroup.gems[1].isSupport).toBe(true);
+    });
+
+    it('uses the correct SkillSet when activeSkillSet != 1', () => {
+      const xml = SKILLSET_XML
+        .replace('activeSkillSet="1"', 'activeSkillSet="2"')
+        .replace('<SkillSet id="1">', '<SkillSet id="1"><Skill slot="Weapon" enabled="true" label=""><Gem nameSpec="Fireball" skillId="Fireball" gemId="Metadata/Items/Gems/SkillGemFireball" level="1" quality="0" enabled="true"/></Skill></SkillSet><SkillSet id="2">')
+        .replace('</SkillSet>\n  </Skills>', '</SkillSet>\n  </Skills>');
+      const data = parsePobXml(xml);
+      // The active set (id=2) has SRS as its first skill
+      expect(data.skillGroups[0].gems[0].nameSpec).toBe('Summon Raging Spirit');
+    });
+  });
+
   describe('error handling', () => {
     it('throws PobParseError for non-PathOfBuilding XML', () => {
       expect(() => parsePobXml('<NotPoB/>')).toThrow(PobParseError);

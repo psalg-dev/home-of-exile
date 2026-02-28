@@ -23,7 +23,7 @@ export function parsePobXml(xml: string): BuildData {
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
     isArray: (name) =>
-      ['Skill', 'Gem', 'Item', 'Slot', 'PlayerStat', 'Socket'].includes(name),
+      ['Skill', 'Gem', 'Item', 'Slot', 'PlayerStat', 'Socket', 'SkillSet'].includes(name),
   });
 
   let doc: Record<string, unknown>;
@@ -63,7 +63,7 @@ export function parsePobXml(xml: string): BuildData {
     chaosRes: statMap.get('ChaosResist') ?? 0,
   };
 
-  // Parse skills
+  // Parse skills — support both flat Skills>Skill and Skills>SkillSet>Skill layouts
   const skillsSection = (pob['Skills'] ?? {}) as Record<string, unknown>;
   const skillGroups = parseSkillGroups(skillsSection);
 
@@ -123,7 +123,18 @@ function getArray<T>(obj: Record<string, unknown>, key: string): T[] {
 }
 
 function parseSkillGroups(skillsSection: Record<string, unknown>): SkillGroup[] {
-  const skillNodes = getArray<Record<string, unknown>>(skillsSection, 'Skill');
+  // Newer PoB exports wrap skills in a SkillSet element:
+  //   <Skills activeSkillSet="1"><SkillSet id="1"><Skill>...</Skill></SkillSet></Skills>
+  // Older exports place Skill directly under Skills.
+  let skillSource: Record<string, unknown> = skillsSection;
+  const skillSets = getArray<Record<string, unknown>>(skillsSection, 'SkillSet');
+  if (skillSets.length > 0) {
+    const activeId = getString(skillsSection, '@_activeSkillSet') || '1';
+    const activeSet = skillSets.find((s) => getString(s, '@_id') === activeId) ?? skillSets[0];
+    skillSource = activeSet;
+  }
+
+  const skillNodes = getArray<Record<string, unknown>>(skillSource, 'Skill');
   return skillNodes.map((skill): SkillGroup => {
     const gemNodes = getArray<Record<string, unknown>>(skill, 'Gem');
     const gems = gemNodes.map((gem): Gem => ({

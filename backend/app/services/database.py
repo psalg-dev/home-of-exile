@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import asyncpg
+from asyncpg.exceptions import TargetServerAttributeNotMatched
 
 if TYPE_CHECKING:
     from asyncpg import Pool
@@ -33,12 +35,80 @@ async def init_db_pool(dsn: str) -> None:
         _pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
         logger.info("PostgreSQL pool initialised (dsn=%s)", dsn)
         await run_migrations()
-    except Exception:
+        return
+    except TargetServerAttributeNotMatched as exc:
+        sanitised_dsn = _strip_unsupported_target_attrs(dsn)
+        if sanitised_dsn == dsn:
+            logger.warning(
+                "PostgreSQL unavailable — feedback persistence disabled "
+                "(%s)",
+                exc,
+            )
+            logger.debug("DB init error details", exc_info=True)
+            _pool = None
+            return
+        try:
+            _pool = await asyncpg.create_pool(
+                sanitised_dsn,
+                min_size=1,
+                max_size=5,
+            )
+            logger.info(
+                "PostgreSQL pool initialised after stripping "
+                "target_session_attrs from dsn"
+            )
+            await run_migrations()
+            return
+        except Exception as retry_exc:
+            logger.warning(
+                "PostgreSQL unavailable — feedback persistence disabled "
+                "(%s)",
+                retry_exc,
+            )
+            logger.debug("DB init retry error details", exc_info=True)
+            _pool = None
+            return
+    except Exception as exc:
         logger.warning(
-            "PostgreSQL unavailable — feedback persistence disabled",
-            exc_info=True,
+            "PostgreSQL unavailable — feedback persistence disabled (%s)",
+            exc,
         )
+        logger.debug("DB init error details", exc_info=True)
         _pool = None
+
+
+def _strip_unsupported_target_attrs(dsn: str) -> str:
+    """Strip unsupported target-server attrs from a PostgreSQL DSN.
+
+    asyncpg can raise ``TargetServerAttributeNotMatched`` when a DSN
+    includes ``target_session_attrs`` (or its alias) that the reachable
+    server cannot satisfy. This helper removes that parameter so local
+    development can degrade gracefully.
+
+    Args:
+        dsn: Original PostgreSQL DSN.
+
+    Returns:
+        DSN without unsupported target attribute query parameters.
+    """
+    split = urlsplit(dsn)
+    query_items = parse_qsl(split.query, keep_blank_values=True)
+    filtered = [
+        (key, value)
+        for key, value in query_items
+        if key.lower() not in {"target_session_attrs", "targetserverattrs"}
+    ]
+    if len(filtered) == len(query_items):
+        return dsn
+    return urlunsplit(
+        (
+            split.scheme,
+            split.netloc,
+            split.path,
+            urlencode(filtered),
+            split.fragment,
+        )
+    )
 
 
 async def close_db_pool() -> None:

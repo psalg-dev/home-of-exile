@@ -247,18 +247,18 @@ test.describe('D5.5 League selector', () => {
     await expect(page.locator('#league-select')).toBeVisible();
   });
 
-  test('league selector defaults to Settlers', async ({ page }) => {
+  test('league selector defaults to Keepers', async ({ page }) => {
     await page.goto('/');
     const select = page.locator('#league-select');
-    await expect(select).toHaveValue('Settlers');
+    await expect(select).toHaveValue('Keepers');
   });
 
   test('league selector shows all three league options', async ({ page }) => {
     await page.goto('/');
     const options = page.locator('#league-select option');
     await expect(options).toHaveCount(3);
-    await expect(options.nth(0)).toHaveText('Settlers (Current)');
-    await expect(options.nth(1)).toHaveText('Mercenaries (Previous)');
+    await expect(options.nth(0)).toHaveText('Keepers of the Flame (Current)');
+    await expect(options.nth(1)).toHaveText('Settlers (Previous)');
     await expect(options.nth(2)).toHaveText('Standard');
   });
 
