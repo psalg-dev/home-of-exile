@@ -50,6 +50,15 @@ class TradeListingsRequest(BaseModel):
             "instantly without negotiation."
         ),
     )
+    key_mods: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Archetype-relevant mod lines from the candidate item "
+            "(e.g. '+80 to maximum Life').  Used to add stat filters to "
+            "the trade query so only items that actually have these mods "
+            "are returned."
+        ),
+    )
     poesessid: str = Field(
         default="",
         description=(

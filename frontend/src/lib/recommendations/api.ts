@@ -163,6 +163,7 @@ export async function fetchRecommendations(
       is_gem: boolean;
       is_unique: boolean;
       base_type: string;
+      key_mods: string[];
     }>;
     critical_issues: Array<{
       category: string;
@@ -195,6 +196,7 @@ export async function fetchRecommendations(
       isGem: r.is_gem ?? false,
       isUnique: r.is_unique ?? false,
       baseType: r.base_type ?? '',
+      keyMods: r.key_mods ?? [],
     })),
     critical_issues: raw.critical_issues.map(i => ({
       category: i.category as RecommendResponse['critical_issues'][0]['category'],

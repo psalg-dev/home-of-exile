@@ -56,6 +56,8 @@ export interface Recommendation {
   isUnique: boolean;
   /** Item base type (e.g. "Leather Belt"). Empty for gems. */
   baseType: string;
+  /** Archetype-relevant mod lines for targeted trade searches. Empty for uniques/gems. */
+  keyMods: string[];
 }
 
 // ---- API request / response -------------------------------------------------

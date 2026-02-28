@@ -30,6 +30,13 @@ export interface TradeListingsRequest {
    */
   buyout_only?: boolean;
   /**
+   * Archetype-relevant mod lines from the candidate item.  When provided,
+   * the backend adds stat filters to the trade query so only items that
+   * actually carry these mods are returned (e.g. attack speed + life on a
+   * rare shield).
+   */
+  key_mods?: string[];
+  /**
    * Player's POESESSID cookie value. Required to fetch actual listing
    * details from the trade API.
    */

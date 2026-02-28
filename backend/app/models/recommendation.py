@@ -135,6 +135,14 @@ class Recommendation(BaseModel):
         default="",
         description="Item base type (e.g. 'Leather Belt'). Empty for gems.",
     )
+    key_mods: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Archetype-relevant mod lines used to build targeted trade "
+            "searches (e.g. '+80 to maximum Life').  Empty for uniques and "
+            "gems whose queries are already narrowed by name."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

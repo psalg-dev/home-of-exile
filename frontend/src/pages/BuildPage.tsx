@@ -736,6 +736,7 @@ function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
         league,
         count: 5,
         buyout_only: true,
+        key_mods: rec.keyMods.length > 0 ? rec.keyMods : undefined,
         poesessid: poeSessionId || undefined,
       });
       if (result.error) {

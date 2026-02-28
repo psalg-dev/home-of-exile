@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import urllib.parse
 from typing import Any
@@ -73,6 +74,74 @@ _CURRENCY_LABELS: dict[str, str] = {
     "mirror": "Mirror of Kalandra",
     "coin": "Perandus Coin",
 }
+
+
+# ---------------------------------------------------------------------------
+# Mod keyword → PoE trade explicit stat ID mapping.
+# Used to add stat filters to trade searches for rare items so results
+# contain only items that actually carry the relevant mods.
+# Ordered: earlier patterns shadow later ones for the same stat.
+# ---------------------------------------------------------------------------
+
+_MOD_STAT_MAP: list[tuple[str, str]] = [
+    # Life / defence
+    ("maximum life",                 "explicit.stat_3299347043"),
+    ("increased energy shield",      "explicit.stat_1050105434"),
+    # Resistances
+    ("to all elemental resistances", "explicit.stat_2901986750"),
+    ("all resistances",              "explicit.stat_2901986750"),
+    ("to fire resistance",           "explicit.stat_3372524247"),
+    ("to cold resistance",           "explicit.stat_4220027924"),
+    ("to lightning resistance",      "explicit.stat_1671376347"),
+    ("to chaos resistance",          "explicit.stat_2923486259"),
+    # Physical / attack
+    ("increased physical damage",    "explicit.stat_1940865751"),
+    ("increased attack speed",       "explicit.stat_210067635"),
+    # Minion
+    ("minions deal",                 "explicit.stat_2109714295"),
+]
+
+
+def build_stat_filters_from_mods(
+    key_mods: list[str],
+) -> list[dict[str, Any]]:
+    """Convert key mod strings into PoE trade API stat filter dicts.
+
+    Each mod in *key_mods* is matched against :data:`_MOD_STAT_MAP` via
+    case-insensitive substring matching.  When a match is found the first
+    numeric value in the mod text is extracted and used as a minimum
+    threshold (at 60 % of the template value) so the filter accepts
+    realistic items, not just theoretical max-roll ones.  Mods that do not
+    match any pattern are silently skipped.
+
+    Args:
+        key_mods: Archetype-relevant mod strings from a candidate item.
+
+    Returns:
+        List of stat filter dicts suitable for the ``stats`` array in a
+        PoE trade search payload.
+    """
+    filters: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for mod in key_mods:
+        mod_lower = mod.lower()
+        stat_id: str | None = None
+        for pattern, sid in _MOD_STAT_MAP:
+            if pattern in mod_lower:
+                stat_id = sid
+                break
+        if stat_id is None or stat_id in seen_ids:
+            continue
+        seen_ids.add(stat_id)
+        # Extract numeric value; set min at 60 % of template to allow
+        # realistic items (not only perfect rolls).
+        nums = re.findall(r"\d+(?:\.\d+)?", mod)
+        entry: dict[str, Any] = {"id": stat_id, "disabled": False}
+        if nums:
+            min_val = max(1, int(float(nums[0]) * 0.6))
+            entry["value"] = {"min": min_val}
+        filters.append(entry)
+    return filters
 
 
 # ---------------------------------------------------------------------------
@@ -196,13 +265,18 @@ def _build_query(req: TradeListingsRequest) -> dict[str, Any]:
             "sort": {"price": "asc"},
         }
 
-    # Rare / normal — search by base type.
+    # Rare / normal — search by base type with optional stat filters
+    # so only items that actually carry the relevant mods are returned.
+    rare_query: dict[str, Any] = {
+        "status": {"option": "online"},
+        "type": req.base_type or req.item_name,
+        "filters": trade_filters,
+    }
+    stat_filters = build_stat_filters_from_mods(req.key_mods)
+    if stat_filters:
+        rare_query["stats"] = [{"type": "and", "filters": stat_filters}]
     return {
-        "query": {
-            "status": {"option": "online"},
-            "type": req.base_type or req.item_name,
-            "filters": trade_filters,
-        },
+        "query": rare_query,
         "sort": {"price": "asc"},
     }
 
@@ -403,12 +477,15 @@ async def fetch_trade_listings(
     """
     # POESESSID is sensitive — include only a boolean presence flag in the
     # cache key so we never store the raw secret in memory as a key.
+    # key_mods affect the generated query, so include a short hash of them.
     has_session = bool(req.poesessid)
+    mods_sig = ",".join(sorted(req.key_mods)) if req.key_mods else ""
     cache_key = (
         f"{req.league}|{req.item_name}|{req.base_type}"
         f"|{req.is_unique}|{req.is_gem}"
         f"|{req.gem_level}|{req.gem_quality}|{req.count}"
         f"|bo={req.buyout_only}|sess={has_session}"
+        f"|mods={mods_sig[:64]}"
     )
 
     cached = await _cache.get(cache_key)

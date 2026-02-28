@@ -22,6 +22,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import urllib.parse
 from typing import TYPE_CHECKING, Any
 
@@ -42,6 +43,7 @@ from app.models.recommendation import (
     Recommendation,
     SimulationResult,
 )
+from app.services.poe_trade import build_stat_filters_from_mods
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +115,16 @@ def generate_trade_link(
 ) -> str:
     """Generate a pre-filled trade site URL for a candidate item.
 
-    For unique items the trade search is narrowed to the item name.
-    For rare base types the base type is used with key mods as stat filters.
-    For gems a gem-specific search is built.
+    All generated URLs include a buyout-only trade filter so the trade
+    site defaults to instant buyouts (shown as the rightmost dropdown
+    on the search page) rather than "In Person" trades.
+
+    For unique items the search is narrowed to the item name.  For rare
+    / normal base types the search includes stat filters derived from
+    the candidate's ``key_mods`` so results show only items that
+    actually carry the relevant affixes (e.g. attack speed + life),
+    not every item of that base class.  For gems a gem-typed search is
+    built.
 
     Args:
         item: Candidate item or gem.
@@ -127,11 +136,23 @@ def generate_trade_link(
     safe_league = urllib.parse.quote(league)
     base_url = f"https://www.pathofexile.com/trade/search/{safe_league}"
 
+    # Buyout-only trade filter — restricts search to instant-trade
+    # listings so players see the rightmost dropdown set to buyout.
+    buyout_filter: dict[str, Any] = {
+        "trade_filters": {
+            "filters": {
+                "collapse": {"option": "true"},
+                "price": {"option": "~b/o"},
+            }
+        }
+    }
+
     if isinstance(item, CandidateGem):
         query: dict[str, Any] = {
             "query": {
                 "type": item.name,
                 "status": {"option": "online"},
+                "filters": buyout_filter,
             },
             "sort": {"price": "asc"},
         }
@@ -139,21 +160,31 @@ def generate_trade_link(
         query = {
             "query": {
                 "name": item.name,
+                "type": item.base_name if item.base_name else None,
                 "status": {"option": "online"},
+                "filters": buyout_filter,
             },
             "sort": {"price": "asc"},
         }
     else:
-        # Rare / normal — search by base type
-        query = {
-            "query": {
-                "type": item.base_name,
-                "status": {"option": "online"},
-            },
-            "sort": {"price": "asc"},
+        # Rare / normal — search by base type and add stat filters derived
+        # from key_mods so only items with the relevant affixes appear.
+        rare_query: dict[str, Any] = {
+            "type": item.base_name,
+            "status": {"option": "online"},
+            "filters": buyout_filter,
         }
+        stat_filters = build_stat_filters_from_mods(
+            item.key_mods if isinstance(item, CandidateItem) else []
+        )
+        if stat_filters:
+            rare_query["stats"] = [{"type": "and", "filters": stat_filters}]
+        query = {"query": rare_query, "sort": {"price": "asc"}}
 
     return f"{base_url}?q={urllib.parse.quote(json.dumps(query, separators=(',', ':')))}"
+
+
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -992,6 +1023,13 @@ def _build_single_recommendation(
         "" if is_gem
         else (candidate.base_name if isinstance(candidate, CandidateItem) else "")
     )
+    # key_mods are only useful for rare items — unique names and gem
+    # types already narrow the trade search without stat filters.
+    key_mods = (
+        candidate.key_mods
+        if isinstance(candidate, CandidateItem) and not is_unique
+        else []
+    )
 
     return Recommendation(
         rank=rank,
@@ -1010,6 +1048,7 @@ def _build_single_recommendation(
         is_gem=is_gem,
         is_unique=is_unique,
         base_type=base_type,
+        key_mods=key_mods,
     )
 
 
