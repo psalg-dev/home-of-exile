@@ -67,7 +67,7 @@ _USER_PROMPT_TEMPLATE = (
     "Current {slot}: {current_item}\n"
     "Suggested: {suggested_item}\n\n"
     "Stat changes:\n"
-    "- DPS: {dps_delta:+,.0f} ({dps_pct:+.1f}%)\n"
+    "- DPS: {dps_delta:+,.0f}\n"
     "- Life: {life_delta:+,.0f}\n"
     "- Energy Shield: {es_delta:+,.0f}\n"
     "- Fire Res: {fire_delta:+.0f}%\n"
@@ -290,9 +290,14 @@ def validate_llm_output(
     life_delta = engine_data.get("life_delta") or 0.0
     es_delta = engine_data.get("es_delta") or 0.0
     price = engine_data.get("price_divine") or 0.0
+    level_val = engine_data.get("level") or 0.0
+    fire_res = engine_data.get("fire_res_delta") or 0.0
+    cold_res = engine_data.get("cold_res_delta") or 0.0
+    lightning_res = engine_data.get("lightning_res_delta") or 0.0
 
     known_values: list[float] = []
-    for v in [dps_delta, life_delta, es_delta, price]:
+    for v in [dps_delta, life_delta, es_delta, price, level_val,
+               fire_res, cold_res, lightning_res]:
         if abs(v) > 0:
             known_values.append(abs(v))
 
@@ -471,6 +476,12 @@ class LLMExplainerService:
             "price_divine": price_divine,
             "suggested_item": suggested_item,
             "current_item": current_item,
+            # Include all numbers from the prompt so the validator
+            # doesn't flag them as hallucinations.
+            "level": float(level),
+            "fire_res_delta": deltas.get("fire_res", 0.0),
+            "cold_res_delta": deltas.get("cold_res", 0.0),
+            "lightning_res_delta": deltas.get("lightning_res", 0.0),
         }
 
         user_prompt = self._build_user_prompt(
@@ -569,8 +580,6 @@ class LLMExplainerService:
             Formatted user prompt string.
         """
         dps = deltas.get("dps", 0.0)
-        baseline_dps = max(abs(dps), 1.0)  # avoid division by zero
-        dps_pct = (dps / baseline_dps) * 100.0 if dps != 0 else 0.0
 
         return _USER_PROMPT_TEMPLATE.format(
             level=level,
@@ -581,7 +590,6 @@ class LLMExplainerService:
             current_item=current_item or "nothing",
             suggested_item=suggested_item,
             dps_delta=dps,
-            dps_pct=dps_pct,
             life_delta=deltas.get("life", 0.0),
             es_delta=deltas.get("energy_shield", 0.0),
             fire_delta=deltas.get("fire_res", 0.0),

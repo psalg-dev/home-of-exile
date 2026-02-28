@@ -52,8 +52,26 @@ if (-not $useDockerBackend) {
         Write-Host "Docker not found; continuing without auto-starting PostgreSQL."
     }
 
+    # Load .env variables into the environment so the backend process inherits them.
+    $dotEnv = Join-Path $PSScriptRoot ".env"
+    if (Test-Path $dotEnv) {
+        Get-Content $dotEnv | Where-Object { $_ -match "^\s*[^#]\S+=.+" } | ForEach-Object {
+            $kv = $_ -split "=", 2
+            $k = $kv[0].Trim(); $v = $kv[1].Trim()
+            [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
+        }
+        Write-Host "  Loaded .env ($dotEnv)"
+    }
+
+    # Build env-var forwarding string for the new window.
+    $envFwd = ""
+    @("OPENAI_API_KEY","DATABASE_URL","POE_NINJA_LEAGUE","LUAJIT_POOL_SIZE") | ForEach-Object {
+        $val = [System.Environment]::GetEnvironmentVariable($_, "Process")
+        if ($val) { $envFwd += "`$env:$_ = '$val'; " }
+    }
+
     Write-Host "Starting backend (local uvicorn)..."
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot\backend'; .\.venv\Scripts\Activate.ps1; uvicorn app.main:app --reload --port $BackendPort"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "${envFwd}cd '$PSScriptRoot\backend'; .\.venv\Scripts\Activate.ps1; uvicorn app.main:app --reload --port $BackendPort"
 }
 else {
     Write-Host "Starting backend (docker compose service)..."

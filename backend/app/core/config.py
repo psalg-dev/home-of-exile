@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Support .env in either the backend/ working dir or the repo root
+        # (start.ps1 launches uvicorn from backend/, root .env has secrets).
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -54,7 +56,8 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
 
     # Per-call timeout in seconds before falling back to template.
-    llm_timeout_seconds: float = 3.0
+    # 8 s handles cold-start TLS connection to OpenAI; warm calls typically < 2 s.
+    llm_timeout_seconds: float = 8.0
 
     # Daily USD spend cap. When reached, all requests fall back to templates.
     # Set to 0 to disable the cap.
