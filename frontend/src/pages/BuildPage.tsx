@@ -16,6 +16,7 @@ import { getSessionId } from '@/lib/session';
 import { submitFeedback, trackTradeClick } from '@/lib/feedback/api';
 import { fetchTradeListings } from '@/lib/poe-trade/api';
 import type { TradeListingsResponse, TradeListing } from '@/lib/poe-trade/types';
+import { usePoeSession } from '@/contexts/poe-session-context';
 
 // ---------------------------------------------------------------------------
 // Recommendation state machine
@@ -718,6 +719,7 @@ interface TradeListingsPanelProps {
 }
 
 function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
+  const { poeSessionId } = usePoeSession();
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<TradeState>({ status: 'idle' });
   const [copied, setCopied] = useState<string | null>(null);
@@ -733,6 +735,8 @@ function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
         is_gem: rec.isGem,
         league,
         count: 5,
+        buyout_only: true,
+        poesessid: poeSessionId || undefined,
       });
       if (result.error) {
         setState({ status: 'error', message: result.error });
@@ -808,6 +812,7 @@ function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
                 <span>
                   {state.data.total_listings.toLocaleString()} listing
                   {state.data.total_listings !== 1 ? 's' : ''} found
+                  {' · buyout only'}
                 </span>
                 {state.data.cached && (
                   <span className="italic text-gray-600">cached</span>
@@ -815,7 +820,7 @@ function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
               </div>
 
               {state.data.listings.length === 0 ? (
-                <p className="text-xs text-gray-500">No live listings right now.</p>
+                <p className="text-xs text-gray-500">No buyout listings right now.</p>
               ) : (
                 <ListingsList
                   listings={state.data.listings}
@@ -833,6 +838,16 @@ function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
                 View all on trade site ↗
               </a>
             </>
+          )}
+
+          {/* Nudge to add POESESSID when not set */}
+          {!poeSessionId && state.status !== 'loading' && (
+            <p className="text-xs text-gray-600 border-t border-gray-800 pt-2">
+              Tip: Add your{' '}
+              <code className="text-amber-500/80">POESESSID</code> via the{' '}
+              <span className="text-gray-400">⚙️</span> button in the header for
+              more reliable price fetching.
+            </p>
           )}
         </div>
       )}

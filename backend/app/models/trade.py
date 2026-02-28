@@ -42,6 +42,23 @@ class TradeListingsRequest(BaseModel):
     gem_quality: int | None = Field(default=None, ge=0, le=23)
     league: str = Field(default="Keepers")
     count: int = Field(default=5, ge=1, le=10)
+    buyout_only: bool = Field(
+        default=True,
+        description=(
+            "When True (default), restrict results to items that have an "
+            "explicit buyout price set (\"~b/o\") so players can trade "
+            "instantly without negotiation."
+        ),
+    )
+    poesessid: str = Field(
+        default="",
+        description=(
+            "Player's POESESSID cookie value. When provided it is forwarded "
+            "as a cookie to the upstream trade API so the player's account "
+            "session is used for the request (required for most trade fetch "
+            "calls)."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

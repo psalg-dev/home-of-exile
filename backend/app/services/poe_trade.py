@@ -156,11 +156,14 @@ def _build_query(req: TradeListingsRequest) -> dict[str, Any]:
         Dict suitable for JSON-encoding as the POST body.
     """
     # Trade filters common to all queries — collapse duplicate accounts.
+    # When buyout_only is True also restrict to items with an explicit
+    # "~b/o" price so players can trade instantly without negotiation.
+    base_trade_filter: dict[str, Any] = {"collapse": {"option": "true"}}
+    if req.buyout_only:
+        base_trade_filter["price"] = {"option": "~b/o"}
     trade_filters: dict[str, Any] = {
         "trade_filters": {
-            "filters": {
-                "collapse": {"option": "true"},
-            }
+            "filters": base_trade_filter,
         }
     }
 
@@ -231,17 +234,28 @@ def _build_trade_url(req: TradeListingsRequest, query_id: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 
-def _make_headers() -> dict[str, str]:
+def _make_headers(poesessid: str = "") -> dict[str, str]:
     """Return HTTP headers for upstream PoE Trade API calls.
 
+    When *poesessid* is given the player's session cookie is forwarded so
+    GGG's servers associate the request with their account (required for
+    the fetch endpoint in most regions).
+
+    Args:
+        poesessid: Optional player session ID cookie value.
+
     Returns:
-        Dict with ``User-Agent``, ``Accept``, and ``Content-Type`` headers.
+        Dict with ``User-Agent``, ``Accept``, ``Content-Type``, and
+        optionally ``Cookie`` headers.
     """
-    return {
+    headers: dict[str, str] = {
         "User-Agent": _USER_AGENT,
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    if poesessid:
+        headers["Cookie"] = f"POESESSID={poesessid}"
+    return headers
 
 
 def _parse_listing(raw: dict[str, Any]) -> TradeListing | None:
@@ -294,6 +308,7 @@ async def _search(
     client: httpx.AsyncClient,
     query: dict[str, Any],
     league: str,
+    poesessid: str = "",
 ) -> tuple[str, list[str], int]:
     """POST a trade search and return (query_id, result_ids, total).
 
@@ -301,6 +316,7 @@ async def _search(
         client: Shared httpx async client.
         query: Trade query payload.
         league: League name.
+        poesessid: Optional player session ID cookie.
 
     Returns:
         Tuple of (query_id, result_ids, total_count).
@@ -314,7 +330,7 @@ async def _search(
     response = await client.post(
         url,
         json=query,
-        headers=_make_headers(),
+        headers=_make_headers(poesessid),
         timeout=_REQUEST_TIMEOUT,
     )
     response.raise_for_status()
@@ -329,6 +345,7 @@ async def _fetch(
     client: httpx.AsyncClient,
     result_ids: list[str],
     query_id: str,
+    poesessid: str = "",
 ) -> list[dict[str, Any]]:
     """GET up to 20 trade listings by their IDs.
 
@@ -336,6 +353,7 @@ async def _fetch(
         client: Shared httpx async client.
         result_ids: Listing IDs from a prior search.
         query_id: The query identifier from the search response.
+        poesessid: Optional player session ID cookie.
 
     Returns:
         Raw result entries from the fetch response.
@@ -351,7 +369,7 @@ async def _fetch(
     url = f"{_TRADE_BASE}/fetch/{ids_param}?query={query_id}"
     response = await client.get(
         url,
-        headers=_make_headers(),
+        headers=_make_headers(poesessid),
         timeout=_REQUEST_TIMEOUT,
     )
     response.raise_for_status()
@@ -383,10 +401,14 @@ async def fetch_trade_listings(
     Returns:
         :class:`TradeListingsResponse` with live or cached listings.
     """
+    # POESESSID is sensitive — include only a boolean presence flag in the
+    # cache key so we never store the raw secret in memory as a key.
+    has_session = bool(req.poesessid)
     cache_key = (
         f"{req.league}|{req.item_name}|{req.base_type}"
         f"|{req.is_unique}|{req.is_gem}"
         f"|{req.gem_level}|{req.gem_quality}|{req.count}"
+        f"|bo={req.buyout_only}|sess={has_session}"
     )
 
     cached = await _cache.get(cache_key)
@@ -403,13 +425,17 @@ async def fetch_trade_listings(
 
     try:
         async with httpx.AsyncClient() as client:
-            query_id, result_ids, total = await _search(client, query, req.league)
+            query_id, result_ids, total = await _search(
+                client, query, req.league, req.poesessid
+            )
 
             if query_id:
                 trade_url = _build_trade_url(req, query_id)
 
             fetch_ids = result_ids[: req.count]
-            raw_entries = await _fetch(client, fetch_ids, query_id)
+            raw_entries = await _fetch(
+                client, fetch_ids, query_id, req.poesessid
+            )
 
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code

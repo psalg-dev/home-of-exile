@@ -24,6 +24,16 @@ export interface TradeListingsRequest {
   league: string;
   /** Max number of listings to return (1–10). */
   count?: number;
+  /**
+   * When true (default), restrict to items with an explicit buyout price
+   * so players can trade instantly without negotiation.
+   */
+  buyout_only?: boolean;
+  /**
+   * Player's POESESSID cookie value. Required to fetch actual listing
+   * details from the trade API.
+   */
+  poesessid?: string;
 }
 
 // ---- Response ---------------------------------------------------------------
