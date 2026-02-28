@@ -160,6 +160,9 @@ export async function fetchRecommendations(
       wiki_url: string | null;
       ninja_url: string | null;
       score: number;
+      is_gem: boolean;
+      is_unique: boolean;
+      base_type: string;
     }>;
     critical_issues: Array<{
       category: string;
@@ -189,6 +192,9 @@ export async function fetchRecommendations(
       wikiUrl: r.wiki_url,
       ninjaUrl: r.ninja_url,
       score: r.score,
+      isGem: r.is_gem ?? false,
+      isUnique: r.is_unique ?? false,
+      baseType: r.base_type ?? '',
     })),
     critical_issues: raw.critical_issues.map(i => ({
       category: i.category as RecommendResponse['critical_issues'][0]['category'],

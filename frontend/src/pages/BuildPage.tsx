@@ -14,6 +14,8 @@ import { fetchRecommendations } from '@/lib/recommendations/api';
 import { useLeague } from '@/contexts/league-context';
 import { getSessionId } from '@/lib/session';
 import { submitFeedback, trackTradeClick } from '@/lib/feedback/api';
+import { fetchTradeListings } from '@/lib/poe-trade/api';
+import type { TradeListingsResponse, TradeListing } from '@/lib/poe-trade/types';
 
 // ---------------------------------------------------------------------------
 // Recommendation state machine
@@ -650,6 +652,9 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
             )}
           </div>
 
+          {/* Live trade listings panel */}
+          <TradeListingsPanel rec={rec} league={league} />
+
           {/* D6.3 Feedback buttons */}
           <div className="flex items-center gap-2 pt-1" data-testid={`feedback-${rec.rank}`}>
             <span className="text-xs text-gray-500">Was this helpful?</span>
@@ -694,6 +699,197 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trade listings panel — lazy-loaded inline price checker
+// ---------------------------------------------------------------------------
+
+type TradeState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: TradeListingsResponse }
+  | { status: 'error'; message: string };
+
+interface TradeListingsPanelProps {
+  rec: Recommendation;
+  league: string;
+}
+
+function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<TradeState>({ status: 'idle' });
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function load() {
+    if (state.status === 'loading') return;
+    setState({ status: 'loading' });
+    try {
+      const result = await fetchTradeListings({
+        item_name: rec.isUnique ? rec.suggestedItem : '',
+        base_type: rec.isGem ? rec.suggestedItem : rec.baseType,
+        is_unique: rec.isUnique,
+        is_gem: rec.isGem,
+        league,
+        count: 5,
+      });
+      if (result.error) {
+        setState({ status: 'error', message: result.error });
+      } else {
+        setState({ status: 'success', data: result });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setState({ status: 'error', message: msg });
+    }
+  }
+
+  function handleToggle() {
+    if (!open && (state.status === 'idle' || state.status === 'error')) {
+      void load();
+    }
+    setOpen(prev => !prev);
+  }
+
+  async function copyWhisper(whisper: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(whisper);
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      // Clipboard API not available in this context — silently ignore.
+    }
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={handleToggle}
+        data-testid={`live-prices-${rec.rank}`}
+        className={`text-xs px-3 py-1.5 rounded transition-colors font-semibold ${
+          open
+            ? 'bg-sky-700 hover:bg-sky-600 text-white'
+            : 'bg-gray-700 hover:bg-sky-700/60 text-gray-200'
+        }`}
+      >
+        {open ? 'Hide Prices' : 'Live Prices ✦'}
+      </button>
+
+      {open && (
+        <div className="mt-2 rounded-lg bg-gray-900 border border-gray-700/60 p-3 space-y-2">
+          {state.status === 'loading' && (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <span
+                className="inline-block w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin"
+                aria-hidden="true"
+              />
+              Fetching live listings…
+            </div>
+          )}
+
+          {state.status === 'error' && (
+            <div className="space-y-1">
+              <p className="text-xs text-red-400">{state.message}</p>
+              <button
+                type="button"
+                onClick={() => { setState({ status: 'idle' }); void load(); }}
+                className="text-xs text-sky-400 hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {state.status === 'success' && (
+            <>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>
+                  {state.data.total_listings.toLocaleString()} listing
+                  {state.data.total_listings !== 1 ? 's' : ''} found
+                </span>
+                {state.data.cached && (
+                  <span className="italic text-gray-600">cached</span>
+                )}
+              </div>
+
+              {state.data.listings.length === 0 ? (
+                <p className="text-xs text-gray-500">No live listings right now.</p>
+              ) : (
+                <ListingsList
+                  listings={state.data.listings}
+                  copied={copied}
+                  onCopy={copyWhisper}
+                />
+              )}
+
+              <a
+                href={state.data.trade_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-xs text-sky-400 hover:text-sky-300 hover:underline"
+              >
+                View all on trade site ↗
+              </a>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ListingsListProps {
+  listings: TradeListing[];
+  copied: string | null;
+  onCopy: (whisper: string, id: string) => Promise<void>;
+}
+
+function ListingsList({ listings, copied, onCopy }: ListingsListProps) {
+  return (
+    <ul className="space-y-1.5" aria-label="Trade listings">
+      {listings.map(listing => (
+        <li
+          key={listing.id}
+          className="flex items-center justify-between gap-2 bg-gray-800/60 rounded px-3 py-1.5"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-bold text-amber-300 shrink-0">
+              {listing.price.amount}
+              <span className="ml-1 text-xs font-normal text-amber-400/80">
+                {listing.price.currency_display || listing.price.currency}
+              </span>
+            </span>
+            <span className="text-xs text-gray-500 truncate">
+              {listing.character_name || listing.account_name}
+            </span>
+            {listing.ilvl > 0 && (
+              <span className="text-xs text-gray-600 shrink-0">iL{listing.ilvl}</span>
+            )}
+            {listing.corrupted && (
+              <span className="text-xs text-red-400 shrink-0">Corrupted</span>
+            )}
+          </div>
+
+          {listing.whisper && (
+            <button
+              type="button"
+              onClick={() => void onCopy(listing.whisper, listing.id)}
+              aria-label="Copy whisper message for this listing"
+              title={listing.whisper}
+              className={`text-xs px-2 py-0.5 rounded shrink-0 transition-colors ${
+                copied === listing.id
+                  ? 'bg-green-700 text-green-100 cursor-default'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300 cursor-pointer'
+              }`}
+            >
+              {copied === listing.id ? '✓ Copied' : 'Whisper'}
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -981,6 +981,18 @@ def _build_single_recommendation(
             f"/unique-armours?name={ninja_slug}"
         )
 
+    # Trade metadata — used by the frontend trade listings panel.
+    is_gem = isinstance(candidate, CandidateGem)
+    is_unique = (
+        not is_gem
+        and isinstance(candidate, CandidateItem)
+        and candidate.rarity == "unique"
+    )
+    base_type = (
+        "" if is_gem
+        else (candidate.base_name if isinstance(candidate, CandidateItem) else "")
+    )
+
     return Recommendation(
         rank=rank,
         category=category,
@@ -995,6 +1007,9 @@ def _build_single_recommendation(
         wiki_url=wiki_url,
         ninja_url=ninja_url,
         score=score,
+        is_gem=is_gem,
+        is_unique=is_unique,
+        base_type=base_type,
     )
 
 

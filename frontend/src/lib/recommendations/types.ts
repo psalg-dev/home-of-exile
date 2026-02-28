@@ -50,6 +50,12 @@ export interface Recommendation {
   wikiUrl: string | null;
   ninjaUrl: string | null;
   score: number;
+  /** True when the suggested upgrade is a skill/support gem. */
+  isGem: boolean;
+  /** True when the suggested item is a unique. */
+  isUnique: boolean;
+  /** Item base type (e.g. "Leather Belt"). Empty for gems. */
+  baseType: string;
 }
 
 // ---- API request / response -------------------------------------------------

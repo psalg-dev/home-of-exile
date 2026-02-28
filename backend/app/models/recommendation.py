@@ -121,6 +121,20 @@ class Recommendation(BaseModel):
     wiki_url: str | None = Field(default=None)
     ninja_url: str | None = Field(default=None)
     score: float
+    # ---- Trade metadata -------------------------------------------------------
+    # These fields allow the frontend to construct targeted PoE Trade queries.
+    is_gem: bool = Field(
+        default=False,
+        description="True when the suggested upgrade is a skill/support gem.",
+    )
+    is_unique: bool = Field(
+        default=False,
+        description="True when the suggested item is a unique.",
+    )
+    base_type: str = Field(
+        default="",
+        description="Item base type (e.g. 'Leather Belt'). Empty for gems.",
+    )
 
 
 # ---------------------------------------------------------------------------

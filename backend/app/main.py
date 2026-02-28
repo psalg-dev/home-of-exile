@@ -18,6 +18,7 @@ from app.api.v1.feedback import router as feedback_router
 from app.api.v1.health import router as health_router
 from app.api.v1.prices import router as prices_router
 from app.api.v1.recommendations import router as recommendations_router
+from app.api.v1.trade import router as trade_router
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.services.database import close_db_pool, init_db_pool
@@ -128,3 +129,4 @@ app.include_router(recommendations_router)
 app.include_router(analyze_router)
 app.include_router(feedback_router)
 app.include_router(admin_router)
+app.include_router(trade_router)
