@@ -10,6 +10,7 @@ class RePoEBaseItem(BaseModel):
 
     name: str = ""
     item_class: str = ""
+    release_state: str = ""
     requirements: dict[str, Any] = {}
     implicit_mods: list[str] = []
     tags: list[str] = []

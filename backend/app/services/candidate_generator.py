@@ -508,6 +508,10 @@ def _candidates_from_repoe(
             continue
         if not item.name:
             continue
+        # Skip items that can't exist as regular rares: unique_only bases
+        # (demigod trophies, threshold jewels, etc.) and unreleased items.
+        if item.release_state and item.release_state not in ("released", "legacy"):
+            continue
 
         level_req = int(item.requirements.get("level", 0) or 0)
         attr_req = ItemAttrReq(**{

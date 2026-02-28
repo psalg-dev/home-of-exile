@@ -34,7 +34,10 @@ from app.models.candidate import (
     ItemAttrReq,
 )
 from app.services.archetype import (
+    archetype_mod_keywords,
+    archetype_template_mods,
     detect_archetype,
+    extract_key_mods,
     score_mod_relevance,
 )
 from app.services.candidate_generator import (
@@ -647,7 +650,6 @@ class TestCandidatesEndpoint:
 
         # Patch repoe to return a Silken Hood with Helmet class
         from app.models.repoe import RePoEBaseItem
-        from app.services import repoe_loader
         mock_base_items: dict[str, RePoEBaseItem] = {
             "Metadata/Items/Armours/Helmets/SilkenHood": RePoEBaseItem(
                 name="Silken Hood",
@@ -659,8 +661,9 @@ class TestCandidatesEndpoint:
 
         with patch(
             "app.api.v1.candidates._get_poe_ninja_client",
-        ) as mock_factory, patch.object(
-            repoe_loader, "load_base_items", return_value=mock_base_items
+        ) as mock_factory, patch(
+            "app.services.candidate_generator.load_base_items",
+            return_value=mock_base_items,
         ):
             mock_client = AsyncMock()
             mock_client.get_item_prices = AsyncMock(
@@ -734,4 +737,406 @@ class TestArchetypeEdgeCases:
         assert archetype.damage_type in (
             "physical", "fire", "cold", "lightning",
             "chaos", "minion", "totem", "trap",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Archetype template mods
+# ---------------------------------------------------------------------------
+
+
+class TestArchetypeTemplateMods:
+    """archetype_template_mods() returns sensible mods for each archetype."""
+
+    def test_minion_archetype_has_minion_mods(self) -> None:
+        """Minion archetype must include a minion damage mod."""
+        archetype = Archetype(
+            damage_type="minion",
+            defense_style="life",
+            playstyle="summoner",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("minion" in m.lower() for m in mods), (
+            f"Expected a minion mod; got: {mods}"
+        )
+
+    def test_fire_archetype_has_fire_mods(self) -> None:
+        """Fire archetype must include a fire damage mod."""
+        archetype = Archetype(
+            damage_type="fire",
+            defense_style="life",
+            playstyle="caster",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("fire" in m.lower() for m in mods), (
+            f"Expected a fire mod; got: {mods}"
+        )
+
+    def test_cold_archetype_has_cold_mods(self) -> None:
+        """Cold archetype must include a cold damage mod."""
+        archetype = Archetype(
+            damage_type="cold",
+            defense_style="es",
+            playstyle="caster",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("cold" in m.lower() for m in mods), (
+            f"Expected a cold mod; got: {mods}"
+        )
+
+    def test_life_defense_includes_life_mod(self) -> None:
+        """Life defense archetype must always include a maximum Life mod."""
+        archetype = Archetype(
+            damage_type="physical",
+            defense_style="life",
+            playstyle="melee",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("life" in m.lower() for m in mods), (
+            f"Expected a Life mod; got: {mods}"
+        )
+
+    def test_summoner_playstyle_has_aura_mod(self) -> None:
+        """Summoner playstyle must include an aura or non-curse aura mod."""
+        archetype = Archetype(
+            damage_type="minion",
+            defense_style="life",
+            playstyle="summoner",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("aura" in m.lower() for m in mods), (
+            f"Expected an aura mod; got: {mods}"
+        )
+
+    def test_caster_playstyle_has_cast_speed_mod(self) -> None:
+        """Caster playstyle must include a cast speed mod."""
+        archetype = Archetype(
+            damage_type="fire",
+            defense_style="life",
+            playstyle="caster",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("cast speed" in m.lower() for m in mods), (
+            f"Expected a cast speed mod; got: {mods}"
+        )
+
+    def test_template_mods_capped_at_five(self) -> None:
+        """archetype_template_mods() must return at most 5 items."""
+        for damage_type in ("fire", "cold", "lightning", "chaos", "physical", "minion"):
+            for playstyle in ("caster", "melee", "ranged", "summoner"):
+                archetype = Archetype(
+                    damage_type=damage_type,
+                    defense_style="life",
+                    playstyle=playstyle,
+                )
+                mods = archetype_template_mods(archetype)
+                assert len(mods) <= 5, (
+                    f"{damage_type}/{playstyle}: expected ≤5 mods, got {len(mods)}"
+                )
+
+    def test_template_mods_are_unique(self) -> None:
+        """archetype_template_mods() must not return duplicate mod strings."""
+        archetype = Archetype(
+            damage_type="minion",
+            defense_style="life",
+            playstyle="summoner",
+        )
+        mods = archetype_template_mods(archetype)
+        assert len(mods) == len(set(mods)), f"Duplicate mods found: {mods}"
+
+    def test_physical_archetype_has_physical_mods(self) -> None:
+        """Physical archetype must include a physical damage mod."""
+        archetype = Archetype(
+            damage_type="physical",
+            defense_style="life",
+            playstyle="melee",
+        )
+        mods = archetype_template_mods(archetype)
+        assert any("physical" in m.lower() for m in mods), (
+            f"Expected a physical mod; got: {mods}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# extract_key_mods
+# ---------------------------------------------------------------------------
+
+
+class TestExtractKeyMods:
+    """extract_key_mods() correctly filters mods for an archetype."""
+
+    def test_extracts_life_mod_for_life_build(self) -> None:
+        """Life mod should be extracted for a life-defense archetype."""
+        archetype = Archetype(
+            damage_type="physical",
+            defense_style="life",
+            playstyle="melee",
+        )
+        mods = [
+            "+80 to maximum Life",
+            "+30% to Lightning Resistance",
+            "10% reduced Flask Charges used",
+        ]
+        result = extract_key_mods(mods, archetype)
+        assert "+80 to maximum Life" in result
+
+    def test_ignores_irrelevant_mods(self) -> None:
+        """'10% reduced Flask Charges used' should not be extracted for melee."""
+        archetype = Archetype(
+            damage_type="physical",
+            defense_style="life",
+            playstyle="melee",
+        )
+        mods = ["10% reduced Flask Charges used", "20% reduced Flask Duration"]
+        result = extract_key_mods(mods, archetype)
+        assert result == [], f"Expected no relevant mods, got {result}"
+
+    def test_returns_empty_for_no_mods(self) -> None:
+        """Empty mod list returns empty result."""
+        archetype = Archetype(
+            damage_type="cold",
+            defense_style="es",
+            playstyle="caster",
+        )
+        assert extract_key_mods([], archetype) == []
+
+    def test_respects_max_mods_limit(self) -> None:
+        """extract_key_mods() must never return more than max_mods items."""
+        archetype = Archetype(
+            damage_type="fire",
+            defense_style="life",
+            playstyle="caster",
+        )
+        mods = [
+            "+80 to maximum Life",
+            "+40 to Fire Resistance",
+            "50% increased Fire Damage",
+            "+25% to Fire Damage over Time Multiplier",
+            "15% increased Cast Speed",
+            "+30% to Cold Resistance",
+        ]
+        result = extract_key_mods(mods, archetype, max_mods=2)
+        assert len(result) <= 2
+
+    def test_extracts_energy_shield_mod_for_es_build(self) -> None:
+        """Energy shield mod should be extracted for a CI/ES archetype."""
+        archetype = Archetype(
+            damage_type="chaos",
+            defense_style="ci",
+            playstyle="caster",
+        )
+        mods = [
+            "+200 to maximum Energy Shield",
+            "+80 to maximum Life",
+        ]
+        result = extract_key_mods(mods, archetype)
+        assert any("energy shield" in m.lower() for m in result), (
+            f"Expected energy shield mod in {result}"
+        )
+
+    def test_extracts_minion_mod_for_summoner(self) -> None:
+        """Minion mod should be extracted for a minion archetype."""
+        archetype = Archetype(
+            damage_type="minion",
+            defense_style="life",
+            playstyle="summoner",
+        )
+        mods = [
+            "Minions deal 50% increased Damage",
+            "+80 to maximum Life",
+            "10% reduced Flask Charges used",
+        ]
+        result = extract_key_mods(mods, archetype)
+        assert "Minions deal 50% increased Damage" in result
+
+
+# ---------------------------------------------------------------------------
+# archetype_mod_keywords
+# ---------------------------------------------------------------------------
+
+
+class TestArchetypeModKeywords:
+    """archetype_mod_keywords() produces the correct keyword sets."""
+
+    def test_life_defense_includes_life_and_res_keywords(self) -> None:
+        """Life defense keywords must include 'maximum life' and 'resistance'."""
+        archetype = Archetype(
+            damage_type="physical",
+            defense_style="life",
+            playstyle="melee",
+        )
+        kws = archetype_mod_keywords(archetype)
+        assert "maximum life" in kws
+        assert "all resistances" in kws
+
+    def test_es_defense_includes_energy_shield_keywords(self) -> None:
+        """ES/CI/hybrid defense keywords must include 'energy shield'."""
+        for defense in ("es", "ci", "lowlife"):
+            archetype = Archetype(
+                damage_type="cold",
+                defense_style=defense,
+                playstyle="caster",
+            )
+            kws = archetype_mod_keywords(archetype)
+            assert "energy shield" in kws, (
+                f"Expected 'energy shield' in keywords for defense={defense}"
+            )
+
+    def test_minion_damage_type_includes_minion_keywords(self) -> None:
+        """Minion damage keywords must include 'minion damage' and 'minion life'."""
+        archetype = Archetype(
+            damage_type="minion",
+            defense_style="life",
+            playstyle="summoner",
+        )
+        kws = archetype_mod_keywords(archetype)
+        assert "minion damage" in kws
+        assert "minion life" in kws
+
+    def test_keywords_have_no_duplicates(self) -> None:
+        """archetype_mod_keywords() must not have duplicate entries."""
+        for damage_type in ("fire", "cold", "minion", "physical"):
+            for playstyle in ("caster", "melee", "summoner"):
+                archetype = Archetype(
+                    damage_type=damage_type,
+                    defense_style="life",
+                    playstyle=playstyle,
+                )
+                kws = archetype_mod_keywords(archetype)
+                assert len(kws) == len(set(kws)), (
+                    f"Duplicate keywords for {damage_type}/{playstyle}: {kws}"
+                )
+
+    def test_fire_damage_type_includes_fire_keywords(self) -> None:
+        """Fire archetype keywords must include 'fire damage'."""
+        archetype = Archetype(
+            damage_type="fire",
+            defense_style="life",
+            playstyle="caster",
+        )
+        kws = archetype_mod_keywords(archetype)
+        assert "fire damage" in kws
+
+
+# ---------------------------------------------------------------------------
+# More archetype damage/playstyle detection edge-cases
+# ---------------------------------------------------------------------------
+
+
+class TestMoreArchetypeDetection:
+    """Additional archetype detection cases for fire, lightning, chaos, ranged builds."""
+
+    def test_fire_build_detected_via_fireball_gem(self) -> None:
+        """A build with Fireball should detect fire damage type."""
+        build = _make_build(
+            level=90,
+            gems=["Fireball", "Increased Area of Effect Support"],
+            main_skill="Fireball",
+            char_class="Witch",
+            ascendancy="Elementalist",
+        )
+        archetype = detect_archetype(build)
+        assert archetype.damage_type == "fire", (
+            f"Expected fire, got '{archetype.damage_type}'"
+        )
+
+    def test_lightning_build_detected_via_class_hint(self) -> None:
+        """Deadeye ascendancy should contribute to lightning damage detection."""
+        build = _make_build(
+            level=90,
+            gems=["Lightning Arrow", "Added Lightning Damage Support"],
+            main_skill="Lightning Arrow",
+            char_class="Ranger",
+            ascendancy="Deadeye",
+        )
+        archetype = detect_archetype(build)
+        # Deadeye gives 'lightning' hint; lightning arrow has lightning keywords
+        assert archetype.damage_type in ("lightning", "physical"), (
+            f"Expected lightning or physical, got '{archetype.damage_type}'"
+        )
+
+    def test_chaos_build_detected_via_occultist(self) -> None:
+        """Occultist ascendancy with chaos skills should detect chaos damage."""
+        build = _make_build(
+            level=90,
+            gems=["Essence Drain", "Contagion", "Wither"],
+            main_skill="Essence Drain",
+            char_class="Witch",
+            ascendancy="Occultist",
+        )
+        archetype = detect_archetype(build)
+        assert archetype.damage_type == "chaos", (
+            f"Expected chaos, got '{archetype.damage_type}'"
+        )
+
+    def test_totem_build_detected_via_gem(self) -> None:
+        """A build with Ancestral Warchief should detect totem build."""
+        build = _make_build(
+            level=90,
+            gems=["Ancestral Warchief", "Totem Support", "Multiple Totems"],
+            main_skill="Ancestral Warchief",
+            char_class="Templar",
+            ascendancy="Hierophant",
+        )
+        archetype = detect_archetype(build)
+        assert archetype.damage_type in ("totem", "physical"), (
+            f"Expected totem or physical; got '{archetype.damage_type}'"
+        )
+
+    def test_ranged_build_playstyle_via_arrow_gem(self) -> None:
+        """A build with Burning Arrow should detect 'ranged' playstyle."""
+        build = _make_build(
+            level=90,
+            gems=["Burning Arrow", "Elemental Damage with Attacks Support"],
+            main_skill="Burning Arrow",
+            char_class="Ranger",
+            ascendancy="Deadeye",
+        )
+        archetype = detect_archetype(build)
+        assert archetype.playstyle in ("ranged", "caster"), (
+            f"Expected ranged or caster; got '{archetype.playstyle}'"
+        )
+
+    def test_lowlife_defense_detected(self) -> None:
+        """Build with life < 35% of ES should be classified as lowlife."""
+        build = _make_build(
+            level=90,
+            life=400,
+            energy_shield=2000,
+            char_class="Witch",
+            ascendancy="Occultist",
+        )
+        archetype = detect_archetype(build)
+        # 400 < 2000 * 0.35 = 700 → lowlife
+        assert archetype.defense_style == "lowlife", (
+            f"Expected lowlife, got '{archetype.defense_style}'"
+        )
+
+    def test_hybrid_defense_detected(self) -> None:
+        """Build with life >= 1000 and ES >= 1000 should be classified as hybrid."""
+        build = _make_build(
+            level=90,
+            life=2000,
+            energy_shield=2000,
+            char_class="Templar",
+            ascendancy="Inquisitor",
+        )
+        archetype = detect_archetype(build)
+        # 2000 >= 2000*0.35=700 (not lowlife), 2000 >= 6000? No (not es), both>=1000 → hybrid
+        assert archetype.defense_style == "hybrid", (
+            f"Expected hybrid, got '{archetype.defense_style}'"
+        )
+
+    def test_lightning_build_via_arc_gem(self) -> None:
+        """A build with Arc should detect lightning damage."""
+        build = _make_build(
+            level=90,
+            gems=["Arc", "Added Lightning Damage Support", "Controlled Destruction Support"],
+            main_skill="Arc",
+            char_class="Witch",
+            ascendancy="Occultist",
+        )
+        archetype = detect_archetype(build)
+        assert archetype.damage_type == "lightning", (
+            f"Expected lightning, got '{archetype.damage_type}'"
         )
