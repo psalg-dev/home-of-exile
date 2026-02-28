@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -294,39 +295,63 @@ class LuaJITWorker:
         try:
             self._process.stdin.write(line_bytes)
             await self._process.stdin.drain()
-
-            raw = await asyncio.wait_for(
-                self._process.stdout.readline(),
-                timeout=_RPC_TIMEOUT,
-            )
-        except TimeoutError as exc:
-            self._ready = False
-            raise LuaJITWorkerError(
-                f"Worker {self.worker_id}: RPC timeout on '{action}'"
-            ) from exc
         except (BrokenPipeError, ConnectionResetError, OSError) as exc:
             self._ready = False
             raise LuaJITWorkerError(
-                f"Worker {self.worker_id}: I/O error on '{action}': {exc}"
+                f"Worker {self.worker_id}: I/O error writing '{action}': {exc}"
             ) from exc
 
-        if not raw:
-            self._ready = False
-            raise LuaJITWorkerError(
-                f"Worker {self.worker_id}: process closed stdout on '{action}'"
-            )
+        # Read lines until we get a valid JSON response, discarding any
+        # non-JSON progress lines (e.g. "LOADING\n") emitted by PoB during
+        # heavy build initialization.  The total wait is bounded by
+        # _RPC_TIMEOUT so we do not spin indefinitely.
+        deadline = time.monotonic() + _RPC_TIMEOUT
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._ready = False
+                raise LuaJITWorkerError(
+                    f"Worker {self.worker_id}: RPC timeout on '{action}'"
+                )
 
-        try:
-            response: dict[str, Any] = json.loads(
-                raw.decode("utf-8", errors="replace").strip()
-            )
-        except json.JSONDecodeError as exc:
-            raise LuaJITWorkerError(
-                f"Worker {self.worker_id}: invalid JSON response for "
-                f"'{action}': {raw!r}"
-            ) from exc
+            try:
+                raw = await asyncio.wait_for(
+                    self._process.stdout.readline(),
+                    timeout=remaining,
+                )
+            except TimeoutError as exc:
+                self._ready = False
+                raise LuaJITWorkerError(
+                    f"Worker {self.worker_id}: RPC timeout on '{action}'"
+                ) from exc
+            except (BrokenPipeError, ConnectionResetError, OSError) as exc:
+                self._ready = False
+                raise LuaJITWorkerError(
+                    f"Worker {self.worker_id}: I/O error on '{action}': {exc}"
+                ) from exc
 
-        return response
+            if not raw:
+                self._ready = False
+                raise LuaJITWorkerError(
+                    f"Worker {self.worker_id}: process closed stdout on '{action}'"
+                )
+
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue  # blank line – keep reading
+
+            try:
+                response: dict[str, Any] = json.loads(line)
+                return response
+            except json.JSONDecodeError:
+                # Non-JSON progress line from PoB (e.g. "LOADING").
+                # Log at debug level and keep reading.
+                logger.debug(
+                    "Worker %d: skipping non-JSON stdout line for '%s': %r",
+                    self.worker_id,
+                    action,
+                    line[:120],
+                )
 
     # ------------------------------------------------------------------
     # Public operations

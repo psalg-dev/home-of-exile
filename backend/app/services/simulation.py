@@ -425,6 +425,14 @@ async def simulate_upgrades(
         top_n = slot_group.candidates[:max_per_slot]
         for candidate in top_n:
             item_text = _build_item_text(candidate)
+            # Skip candidates that produce a degenerate item text (no name
+            # or base type) — PoB will fail to parse them anyway.
+            if not candidate.name and not candidate.base_name:
+                logger.debug(
+                    "Skipping candidate in %s: no name or base_name",
+                    slot_group.slot,
+                )
+                continue
             swap_specs.append((slot_group.slot, candidate, item_text))
 
     for gem_group in gem_candidates:
