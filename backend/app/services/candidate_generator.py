@@ -165,9 +165,21 @@ _SLOT_TEMPLATE_OVERRIDES: dict[str, list[str]] = {
         "+30% to Fire Resistance",
         "+30% to Cold Resistance",
     ],
-    # Amulet and Weapon slots fall through to archetype_template_mods, which
-    # includes the primary build-damage modifier.  This intentionally preserves
-    # higher DPS deltas for the most offensive slots.
+    # Amulet: life + resistances are the realistic explicit mods that roll on
+    # rare amulets and that trade searches can find.  Damage mods (fire%, DoT
+    # multi, cast speed) are excluded here because they only appear as implicits
+    # on specific bases (Blue Pearl Amulet, etc.) and almost never roll as
+    # explicit mods — including them in the simulation template grossly inflates
+    # the DPS delta shown to the user.
+    "Amulet": [
+        "+80 to maximum Life",
+        "+30% to Fire Resistance",
+        "+30% to Cold Resistance",
+        "+30% to Lightning Resistance",
+    ],
+    # Weapon slots fall through to archetype_template_mods, which includes the
+    # primary build-damage modifier.  This intentionally preserves higher DPS
+    # deltas for the most offensive slots.
 }
 
 # ---------------------------------------------------------------------------
@@ -200,11 +212,11 @@ def _normalise_slot(slot: str) -> str:
 def _slot_template_mods(archetype: Archetype, slot: str) -> list[str]:
     """Return template mods appropriate for *slot* and *archetype*.
 
-    Defensive slots (body armour, shield, boots, belt, etc.) return a
-    curated list focused on life and resistances that omits the primary
-    build-damage modifier.  Offensive slots (amulet, weapon) return the
-    full :func:`archetype_template_mods` result, which includes the
-    archetype's primary damage mod.
+    Defensive slots (body armour, shield, boots, belt, rings, amulet, etc.)
+    return a curated list focused on life and resistances that omits the
+    primary build-damage modifier.  Offensive slots (weapon) return the full
+    :func:`archetype_template_mods` result, which includes the archetype's
+    primary damage mod.
 
     Using slot-specific mods avoids all candidates producing the same
     DPS delta (which happens when every slot is simulated with the same
@@ -220,7 +232,7 @@ def _slot_template_mods(archetype: Archetype, slot: str) -> list[str]:
     override = _SLOT_TEMPLATE_OVERRIDES.get(slot)
     if override is not None:
         return override[:]
-    # Slots with no override (Amulet, Weapon, Jewel, Flask) get the full
+    # Slots with no override (Weapon, Jewel, Flask) get the full
     # archetype template including the primary damage modifier.
     return archetype_template_mods(archetype)
 
@@ -582,6 +594,117 @@ def _candidates_from_poe_ninja(
     return candidates
 
 
+def _shield_matches_defense_style(tags: list[str], defense_style: str) -> bool:
+    """Return True if a shield base type is appropriate for the defense style.
+
+    RePoE base_items.json uses the following discriminating tags for shields:
+      - ``str_shield``     → Tower Shields (armour)
+      - ``dex_shield``     → Bucklers (evasion)
+      - ``str_dex_shield`` → Round Shields (armour/evasion hybrid)
+      - ``str_int_shield`` → Kite Shields (armour/ES hybrid)
+      - ``dex_int_shield`` → Spiked Shields (evasion/ES hybrid)
+      - ``focus``          → Spirit Shields (ES)
+
+    Life builds are Str-based and benefit from armour-layer shields.
+    ES / CI builds are Int-based and benefit from Spirit Shields.
+    """
+    tag_set = set(tags)
+    if defense_style == "life":
+        # Str-based: Tower Shields, Round Shields, Kite Shields — anything
+        # that has a strength component.  Exclude pure evasion (Bucklers) and
+        # pure ES (Spirit Shields).
+        return bool(tag_set & {"str_shield", "str_dex_shield", "str_int_shield"})
+    if defense_style in ("es", "ci", "lowlife"):
+        # Int-based: Spirit Shields, Spiked Shields, Kite Shields — anything
+        # that has an intelligence component.
+        return bool(tag_set & {"focus", "dex_int_shield", "str_int_shield"})
+    if defense_style == "hybrid":
+        # Life + ES hybrid: exclude pure evasion shields (Bucklers) but allow
+        # both armour and ES options.
+        return "dex_shield" not in tag_set
+    # Unknown / other defense style: no filtering
+    return True
+
+
+# Item classes whose defensive-type tags should be filtered by defense style.
+_ARMOUR_CLASSES: frozenset[str] = frozenset(
+    {"Body Armour", "Shield", "Helmet", "Gloves", "Boots"}
+)
+
+
+def _armour_matches_defense_style(tags: list[str], defense_style: str) -> bool:
+    """Return True if an armour-type base is suitable for the defense style.
+
+    Applies to all armour-class equipment (Body Armour, Helmet, Gloves,
+    Boots, and Shields).  Uses the same discriminating tag prefixes as
+    :func:`_shield_matches_defense_style`:
+
+    * ``str_armour``         → Strength / armour layer
+    * ``dex_armour``         → Dexterity / evasion layer
+    * ``int_armour``         → Intelligence / ES layer
+    * ``str_dex_armour``     → Str+Dex hybrid (armour+evasion)
+    * ``str_int_armour``     → Str+Int hybrid (armour+ES)
+    * ``dex_int_armour``     → Dex+Int hybrid (evasion+ES)
+    * ``str_dex_int_armour`` → Triple hybrid — allowed for all styles
+    * ``ward_armour``        → Ward layer (treated like ES)
+    * ``focus``              → Spirit Shields (ES)
+    * ``str_shield`` / ``dex_shield`` / ``str_dex_shield`` / ``str_int_shield``
+      / ``dex_int_shield``   → Shield-specific variants (same logic)
+
+    Items with no matching discriminating tag (e.g. demigod pieces) pass
+    through unconditionally.
+    """
+    tag_set = set(tags)
+    # Triple-hybrid and items without a discriminating tag: always pass
+    if "str_dex_int_armour" in tag_set:
+        return True
+
+    if defense_style == "life":
+        # Armour (Str) layer — prefer pieces that contribute armour rating.
+        # Allow Str-only, Str+Dex, and Str+Int bases; exclude pure evasion
+        # and pure ES.
+        str_tags = {
+            "str_armour", "str_dex_armour", "str_int_armour",
+            "str_shield", "str_dex_shield", "str_int_shield",
+        }
+        if tag_set & str_tags:
+            return True
+        # If the item has no armour discriminator at all we allow it through
+        # (e.g. items with only generic 'helmet'/'gloves' tags).
+        armour_discriminators = {
+            "str_armour", "dex_armour", "int_armour",
+            "str_dex_armour", "str_int_armour", "dex_int_armour",
+            "str_shield", "dex_shield", "str_dex_shield",
+            "str_int_shield", "dex_int_shield",
+            "focus", "ward_armour",
+        }
+        return not bool(tag_set & armour_discriminators)
+
+    if defense_style in ("es", "ci", "lowlife"):
+        int_tags = {
+            "int_armour", "ward_armour", "focus",
+            "str_int_armour", "dex_int_armour",
+            "str_int_shield", "dex_int_shield",
+        }
+        if tag_set & int_tags:
+            return True
+        armour_discriminators = {
+            "str_armour", "dex_armour", "int_armour",
+            "str_dex_armour", "str_int_armour", "dex_int_armour",
+            "str_shield", "dex_shield", "str_dex_shield",
+            "str_int_shield", "dex_int_shield",
+            "focus", "ward_armour",
+        }
+        return not bool(tag_set & armour_discriminators)
+
+    if defense_style == "hybrid":
+        # Life + ES: exclude pure evasion pieces.
+        pure_evasion = {"dex_armour", "dex_shield"}
+        return not bool(tag_set & pure_evasion)
+
+    return True
+
+
 def _candidates_from_repoe(
     build: BuildData,
     slot: str,
@@ -628,6 +751,16 @@ def _candidates_from_repoe(
         # Skip items that can't exist as regular rares: unique_only bases
         # (demigod trophies, threshold jewels, etc.) and unreleased items.
         if item.release_state and item.release_state not in ("released", "legacy"):
+            continue
+
+        # Filter armour-class items to match the build's defensive archetype so
+        # that, for example, evasion shields/body armours are not suggested for
+        # armour/life builds and Spirit Shields are not suggested for life
+        # builds.  All armour-type item classes (Body Armour, Shield, Helmet,
+        # Gloves, Boots) are covered by the shared discriminator function.
+        if item.item_class in _ARMOUR_CLASSES and not _armour_matches_defense_style(
+            item.tags, archetype.defense_style
+        ):
             continue
 
         level_req = int(item.requirements.get("level", 0) or 0)

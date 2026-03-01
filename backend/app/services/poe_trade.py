@@ -118,26 +118,37 @@ _MOD_STAT_MAP: list[tuple[str, str]] = [
 
 def build_stat_filters_from_mods(
     key_mods: list[str],
+    max_filters: int = 2,
 ) -> list[dict[str, Any]]:
     """Convert key mod strings into PoE trade API stat filter dicts.
 
     Each mod in *key_mods* is matched against :data:`_MOD_STAT_MAP` via
     case-insensitive substring matching.  When a match is found the first
     numeric value in the mod text is extracted and used as a minimum
-    threshold (at 60 % of the template value) so the filter accepts
-    realistic items, not just theoretical max-roll ones.  Mods that do not
-    match any pattern are silently skipped.
+    threshold (at 50 % of the template value) so the filter accepts
+    mid-roll items commonly found on the live trade market.
+
+    **At most *max_filters* (default 2) filters are returned.**  Requiring
+    more than 2–3 stats simultaneously on a single rare item typically
+    yields 0 trade results because the PoE trade API applies all stat
+    filters as a strict AND condition.  Using fewer, higher-priority stats
+    keeps searches actionable while still quality-gating items.
+
+    Mods that do not match any pattern are silently skipped.
 
     Args:
         key_mods: Archetype-relevant mod strings from a candidate item.
+        max_filters: Maximum number of stat filters to return (default 2).
 
     Returns:
-        List of stat filter dicts suitable for the ``stats`` array in a
-        PoE trade search payload.
+        List of up to *max_filters* stat filter dicts suitable for the
+        ``stats`` array in a PoE trade search payload.
     """
     filters: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for mod in key_mods:
+        if len(filters) >= max_filters:
+            break
         mod_lower = mod.lower()
         stat_id: str | None = None
         for pattern, sid in _MOD_STAT_MAP:
@@ -147,12 +158,12 @@ def build_stat_filters_from_mods(
         if stat_id is None or stat_id in seen_ids:
             continue
         seen_ids.add(stat_id)
-        # Extract numeric value; set min at 60 % of template to allow
-        # realistic items (not only perfect rolls).
+        # Extract numeric value; set min at 50 % of template to allow
+        # mid-roll items (not only max-roll BiS pieces) to appear in results.
         nums = re.findall(r"\d+(?:\.\d+)?", mod)
         entry: dict[str, Any] = {"id": stat_id, "disabled": False}
         if nums:
-            min_val = max(1, int(float(nums[0]) * 0.6))
+            min_val = max(1, int(float(nums[0]) * 0.5))
             entry["value"] = {"min": min_val}
         filters.append(entry)
     return filters
