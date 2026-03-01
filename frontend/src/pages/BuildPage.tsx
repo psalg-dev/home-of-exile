@@ -254,6 +254,7 @@ function BuildPageContent({ buildData, itemsObj, league, onImportAnother }: Buil
                   sessionId={sessionId}
                   league={league}
                   characterLevel={buildData.level}
+                  characterStats={stats}
                 />
               ))}
             </div>
@@ -443,10 +444,17 @@ interface RecommendationCardProps {
   sessionId: string;
   league: string;
   characterLevel: number;
+  /** Current character stat block used to detect resistance-uncapping trade-offs. */
+  characterStats?: BuildData['stats'];
 }
 
-function RecommendationCard({ rec, sessionId, league, characterLevel }: RecommendationCardProps) {
+/** Minimum elemental resistance threshold — below this level is considered uncapped. */
+const RES_CAP = 75;
+
+function RecommendationCard({ rec, sessionId, league, characterLevel, characterStats }: RecommendationCardProps) {
   const [expanded, setExpanded] = useState(false);
+  /** Cheapest live listing price surfaced by the trade panel after it loads. */
+  const [livePrice, setLivePrice] = useState<{ amount: number; currency_display: string } | null>(null);
   /** null = not voted yet, 'up' | 'down' = voted */
   const [voted, setVoted] = useState<'up' | 'down' | null>(null);
   /** null = not reported, 'reported' = wrong_explanation submitted */
@@ -460,6 +468,15 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
   const fireResDelta  = rec.deltas['fire_res'] ?? null;
   const coldResDelta  = rec.deltas['cold_res'] ?? null;
   const lightResDelta = rec.deltas['lightning_res'] ?? null;
+
+  // Detect when this swap would push a currently-capped resistance below RES_CAP.
+  // These warnings appear inline in the summary header so users don't miss critical trade-offs.
+  const willUncapFire  = characterStats != null && fireResDelta  != null && fireResDelta  < 0
+    && (characterStats.fireRes      + fireResDelta)  < RES_CAP && characterStats.fireRes      >= RES_CAP;
+  const willUncapCold  = characterStats != null && coldResDelta  != null && coldResDelta  < 0
+    && (characterStats.coldRes      + coldResDelta)  < RES_CAP && characterStats.coldRes      >= RES_CAP;
+  const willUncapLight = characterStats != null && lightResDelta != null && lightResDelta < 0
+    && (characterStats.lightningRes + lightResDelta) < RES_CAP && characterStats.lightningRes >= RES_CAP;
 
   /** Submit a thumbs-up or thumbs-down vote. */
   async function handleVote(vote: 'up' | 'down') {
@@ -545,22 +562,33 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
           <span className={`text-xs font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${style.text} ${style.bg}`}>
             {style.label}
           </span>
-          <span className="text-xs text-gray-500 uppercase shrink-0">{rec.slot}</span>
+          <span className="text-xs text-gray-500 uppercase shrink-0">
+            {rec.slot === 'Weapon 2' ? 'Off-Hand' : rec.slot}
+          </span>
           {/* Deltas inline on header */}
           <div className="flex flex-wrap gap-1.5 items-center">
             {dpsDelta !== null && dpsDelta !== 0 && <DeltaBadge label="DPS" value={dpsDelta} formatFn={formatDps} />}
             {lifeDelta !== null && lifeDelta !== 0 && <DeltaBadge label="Life" value={lifeDelta} formatFn={Math.round} />}
             {esDelta   !== null && esDelta   !== 0 && <DeltaBadge label="ES"   value={esDelta}   formatFn={Math.round} />}
             {ehpDelta  !== null && ehpDelta  !== 0 && <DeltaBadge label="EHP"  value={ehpDelta}  formatFn={Math.round} />}
+            {/* Resistance uncap warnings — visible in the header to flag trade-off upgrades immediately */}
+            {willUncapFire  && <DeltaBadge label="⚠ Fire Res"  value={fireResDelta!}  formatFn={v => `${Math.round(v)}%`} />}
+            {willUncapCold  && <DeltaBadge label="⚠ Cold Res"  value={coldResDelta!}  formatFn={v => `${Math.round(v)}%`} />}
+            {willUncapLight && <DeltaBadge label="⚠ Lght Res"  value={lightResDelta!} formatFn={v => `${Math.round(v)}%`} />}
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          {rec.priceDivine !== null && (
+          {livePrice !== null && (
+            <span className="text-sm font-semibold text-amber-400 whitespace-nowrap">
+              from {livePrice.amount} {livePrice.currency_display}
+            </span>
+          )}
+          {livePrice === null && rec.priceDivine !== null && (
             <span className="text-sm font-semibold text-amber-400 whitespace-nowrap">
               ~{rec.priceDivine.toFixed(1)} div
             </span>
           )}
-          {rec.priceDivine === null && (
+          {livePrice === null && rec.priceDivine === null && (
             <span className="text-xs text-gray-500 whitespace-nowrap">Price unknown</span>
           )}
           <span className={`text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true">â–¾</span>
@@ -654,7 +682,7 @@ function RecommendationCard({ rec, sessionId, league, characterLevel }: Recommen
           </div>
 
           {/* Live trade listings panel */}
-          <TradeListingsPanel rec={rec} league={league} />
+          <TradeListingsPanel rec={rec} league={league} onPriceLoaded={setLivePrice} />
 
           {/* D6.3 Feedback buttons */}
           <div className="flex items-center gap-2 pt-1" data-testid={`feedback-${rec.rank}`}>
@@ -716,9 +744,11 @@ type TradeState =
 interface TradeListingsPanelProps {
   rec: Recommendation;
   league: string;
+  /** Called with the cheapest listing when trade data loads successfully. Propagates to the card header. */
+  onPriceLoaded?: (price: { amount: number; currency_display: string }) => void;
 }
 
-function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
+function TradeListingsPanel({ rec, league, onPriceLoaded }: TradeListingsPanelProps) {
   const { poeSessionId } = usePoeSession();
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<TradeState>({ status: 'idle' });
@@ -743,12 +773,30 @@ function TradeListingsPanel({ rec, league }: TradeListingsPanelProps) {
         setState({ status: 'error', message: result.error });
       } else {
         setState({ status: 'success', data: result });
+        // Propagate the cheapest price up to the card header.
+        if (onPriceLoaded && result.listings.length > 0) {
+          const cheapest = result.listings[0];
+          onPriceLoaded({
+            amount: cheapest.price.amount,
+            currency_display: cheapest.price.currency_display || cheapest.price.currency,
+          });
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       setState({ status: 'error', message: msg });
     }
   }
+
+  // Auto-load and open the trade panel on mount when POESESSID is configured.
+  // Without a session ID the panel stays closed to avoid anonymous API spam.
+  useEffect(() => {
+    if (poeSessionId) {
+      void load();
+      setOpen(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
 
   function handleToggle() {
     if (!open && (state.status === 'idle' || state.status === 'error')) {
