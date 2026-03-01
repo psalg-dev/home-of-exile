@@ -136,13 +136,15 @@ def generate_trade_link(
     safe_league = urllib.parse.quote(league)
     base_url = f"https://www.pathofexile.com/trade/search/{safe_league}"
 
-    # Buyout-only trade filter — restricts search to instant-trade
-    # listings so players see the rightmost dropdown set to buyout.
+    # Buyout-only trade filter — restricts search to instant-trade listings.
+    # The PoE Trade API v1 uses "sale_type" with option "priced" to filter for
+    # items that have a buyout price set (the old "price"/"~b/o" form returns
+    # HTTP 400 "Unknown currency type").
     buyout_filter: dict[str, Any] = {
         "trade_filters": {
             "filters": {
                 "collapse": {"option": "true"},
-                "price": {"option": "~b/o"},
+                "sale_type": {"option": "priced"},
             }
         }
     }

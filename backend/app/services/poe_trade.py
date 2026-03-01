@@ -85,20 +85,34 @@ _CURRENCY_LABELS: dict[str, str] = {
 
 _MOD_STAT_MAP: list[tuple[str, str]] = [
     # Life / defence
-    ("maximum life",                 "explicit.stat_3299347043"),
-    ("increased energy shield",      "explicit.stat_1050105434"),
+    ("maximum life",                         "explicit.stat_3299347043"),
+    ("increased energy shield",              "explicit.stat_1050105434"),
     # Resistances
-    ("to all elemental resistances", "explicit.stat_2901986750"),
-    ("all resistances",              "explicit.stat_2901986750"),
-    ("to fire resistance",           "explicit.stat_3372524247"),
-    ("to cold resistance",           "explicit.stat_4220027924"),
-    ("to lightning resistance",      "explicit.stat_1671376347"),
-    ("to chaos resistance",          "explicit.stat_2923486259"),
+    ("to all elemental resistances",         "explicit.stat_2901986750"),
+    ("all resistances",                      "explicit.stat_2901986750"),
+    ("to fire resistance",                   "explicit.stat_3372524247"),
+    ("to cold resistance",                   "explicit.stat_4220027924"),
+    ("to lightning resistance",              "explicit.stat_1671376347"),
+    ("to chaos resistance",                  "explicit.stat_2923486259"),
+    # Damage over time multipliers — match before element-specific damage
+    # so '+% to Fire Damage over Time Multiplier' doesn't shadow the fire
+    # damage entry below.
+    ("to fire damage over time multiplier",  "explicit.stat_3382807662"),
+    ("to cold damage over time multiplier",  "explicit.stat_1950806024"),
+    ("to chaos damage over time multiplier", "explicit.stat_4055307827"),
+    ("to damage over time multiplier",       "explicit.stat_3988349707"),
+    # Elemental damage (spell / hit / DoT builds)
+    ("increased fire damage",                "explicit.stat_3962278098"),
+    ("increased cold damage",                "explicit.stat_3291658075"),
+    ("increased lightning damage",           "explicit.stat_2231156303"),
+    ("increased chaos damage",               "explicit.stat_736967255"),
+    ("increased spell damage",               "explicit.stat_2974417149"),
+    ("increased cast speed",                 "explicit.stat_2891184298"),
     # Physical / attack
-    ("increased physical damage",    "explicit.stat_1940865751"),
-    ("increased attack speed",       "explicit.stat_210067635"),
+    ("increased physical damage",            "explicit.stat_1940865751"),
+    ("increased attack speed",               "explicit.stat_210067635"),
     # Minion
-    ("minions deal",                 "explicit.stat_2109714295"),
+    ("minions deal",                         "explicit.stat_2109714295"),
 ]
 
 
@@ -226,10 +240,13 @@ def _build_query(req: TradeListingsRequest) -> dict[str, Any]:
     """
     # Trade filters common to all queries — collapse duplicate accounts.
     # When buyout_only is True also restrict to items with an explicit
-    # "~b/o" price so players can trade instantly without negotiation.
+    # buyout price so players can trade instantly without negotiation.
+    # NOTE: The PoE Trade API v1 does NOT accept "price": {"option": "~b/o"}.
+    # The correct filter is "sale_type": {"option": "priced"} which limits
+    # results to items that have a price set by the seller.
     base_trade_filter: dict[str, Any] = {"collapse": {"option": "true"}}
     if req.buyout_only:
-        base_trade_filter["price"] = {"option": "~b/o"}
+        base_trade_filter["sale_type"] = {"option": "priced"}
     trade_filters: dict[str, Any] = {
         "trade_filters": {
             "filters": base_trade_filter,

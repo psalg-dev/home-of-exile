@@ -95,6 +95,81 @@ _MAX_CANDIDATES = 20
 _CONFIDENCE_HIGH = 20
 _CONFIDENCE_MED = 5
 
+# How many levels below the character level a base item is still considered
+# relevant.  Bases with level_req < (char_level - delta) are skipped so that
+# low-tier items like 'Shabby Jerkin' never appear for a level-99 character.
+_MIN_BASE_ILVL_DELTA = 40
+
+# ---------------------------------------------------------------------------
+# Slot-specific template-mod overrides for simulation
+# ---------------------------------------------------------------------------
+# When PoB simulates a candidate item it uses the item's key_mods as explicit
+# mods on the base.  Using the same full-archetype damage template on every
+# slot produces identical DPS deltas (all driven by "50% increased Fire Damage"
+# regardless of whether the slot is a shield or an amulet), which makes
+# ranking meaningless.  Instead each slot gets plausible top-roll mods that
+# reflect what it actually contributes to the build.
+_SLOT_TEMPLATE_OVERRIDES: dict[str, list[str]] = {
+    # Body armour: primary life-and-resistance slot; no explicit damage%.
+    "Body Armour": [
+        "+120 to maximum Life",
+        "+35% to Fire Resistance",
+        "+35% to Cold Resistance",
+        "+35% to Lightning Resistance",
+        "6% increased maximum Life",
+    ],
+    # Off-hand shields contribute life, resistances and block.
+    # Weapons in the off-hand use archetype_template_mods instead (fallthrough).
+    "Weapon 2": [
+        "+80 to maximum Life",
+        "+35% to Fire Resistance",
+        "+35% to Cold Resistance",
+        "20% Chance to Block Attack Damage",
+    ],
+    # Helmet: life + resistances; strength as common stat for melee/summoners.
+    "Helmet": [
+        "+80 to maximum Life",
+        "+35% to Fire Resistance",
+        "+35% to Cold Resistance",
+        "+40 to Strength",
+    ],
+    # Gloves: life + resistances + speed modifier.
+    "Gloves": [
+        "+70 to maximum Life",
+        "+30% to Fire Resistance",
+        "+30% to Cold Resistance",
+        "15% increased Attack Speed",
+    ],
+    # Boots: movement speed is the core upgrade alongside life/res.
+    "Boots": [
+        "+70 to maximum Life",
+        "+30% to Fire Resistance",
+        "+30% to Cold Resistance",
+        "30% increased Movement Speed",
+    ],
+    # Belt: high flat life + all resistances; life% as unique belt suffix.
+    "Belt": [
+        "+100 to maximum Life",
+        "+30% to Fire Resistance",
+        "+30% to Cold Resistance",
+        "+30% to Lightning Resistance",
+    ],
+    # Rings contribute life + resistances; less damage-focused than amulets.
+    "Ring": [
+        "+60 to maximum Life",
+        "+30% to Fire Resistance",
+        "+30% to Cold Resistance",
+    ],
+    "Ring 2": [
+        "+60 to maximum Life",
+        "+30% to Fire Resistance",
+        "+30% to Cold Resistance",
+    ],
+    # Amulet and Weapon slots fall through to archetype_template_mods, which
+    # includes the primary build-damage modifier.  This intentionally preserves
+    # higher DPS deltas for the most offensive slots.
+}
+
 # ---------------------------------------------------------------------------
 # poe.ninja item type → item class mapping
 # (used to infer slot from poe.ninja category data)
@@ -120,6 +195,34 @@ _NINJA_CATEGORY_TO_CLASSES: dict[str, list[str]] = {
 def _normalise_slot(slot: str) -> str:
     """Normalise a slot name, resolving known aliases."""
     return _SLOT_ALIASES.get(slot, slot)
+
+
+def _slot_template_mods(archetype: Archetype, slot: str) -> list[str]:
+    """Return template mods appropriate for *slot* and *archetype*.
+
+    Defensive slots (body armour, shield, boots, belt, etc.) return a
+    curated list focused on life and resistances that omits the primary
+    build-damage modifier.  Offensive slots (amulet, weapon) return the
+    full :func:`archetype_template_mods` result, which includes the
+    archetype's primary damage mod.
+
+    Using slot-specific mods avoids all candidates producing the same
+    DPS delta (which happens when every slot is simulated with the same
+    damage-boosting mod).
+
+    Args:
+        archetype: Detected build archetype.
+        slot: Normalised equipment slot name.
+
+    Returns:
+        List of up to 5 PoE-format mod strings for item simulation.
+    """
+    override = _SLOT_TEMPLATE_OVERRIDES.get(slot)
+    if override is not None:
+        return override[:]
+    # Slots with no override (Amulet, Weapon, Jewel, Flask) get the full
+    # archetype template including the primary damage modifier.
+    return archetype_template_mods(archetype)
 
 
 def _confidence_from_count(listing_count: int) -> str:
@@ -501,15 +604,21 @@ def _candidates_from_repoe(
     base_items = load_base_items()
     candidates: list[CandidateItem] = []
 
-    # Pre-compute archetype template mods once for the entire slot — these
-    # represent the best explicit mods a well-crafted rare of this archetype
-    # would carry.  They are injected into the simulation item text so that
-    # PoB recalculates with realistic upgrade potential rather than an empty
-    # base type (which produces zero stat deltas against the current gear).
-    template_mods = archetype_template_mods(archetype)
+    # Pre-compute slot-specific archetype template mods — these represent the
+    # best explicit mods a well-crafted rare of this archetype and slot would
+    # carry.  Slot-aware mods prevent every slot from producing the same DPS
+    # delta (which occurs when a damage mod is injected into a body-armour or
+    # shield candidate that wouldn't realistically carry such a mod).
+    template_mods = _slot_template_mods(archetype, slot)
     template_relevance = score_mod_relevance(template_mods, archetype)
     # Ensure at least a minimal relevance value for items that get template mods
     template_relevance = max(template_relevance, 0.5)
+
+    # Minimum level requirement for a base to be a sensible upgrade candidate:
+    # skip bases that are more than _MIN_BASE_ILVL_DELTA levels below the
+    # character so that low-tier items (Shabby Jerkin for a level-99 build)
+    # are never suggested.
+    min_level_req = max(1, build.level - _MIN_BASE_ILVL_DELTA)
 
     for _item_id, item in base_items.items():
         if item.item_class not in target_classes:
@@ -522,6 +631,12 @@ def _candidates_from_repoe(
             continue
 
         level_req = int(item.requirements.get("level", 0) or 0)
+
+        # Exclude bases whose level requirement is too low for the character.
+        # level_req == 0 means the base has no level requirement (white flasks,
+        # low-level jewels, etc.) — allow these through unconditionally.
+        if level_req > 0 and level_req < min_level_req:
+            continue
         attr_req = ItemAttrReq(**{
             "str": int(item.requirements.get("str", 0) or 0),
             "dex": int(item.requirements.get("dex", 0) or 0),

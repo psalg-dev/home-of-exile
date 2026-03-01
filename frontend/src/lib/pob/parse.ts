@@ -23,7 +23,7 @@ export function parsePobXml(xml: string): BuildData {
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
     isArray: (name) =>
-      ['Skill', 'Gem', 'Item', 'Slot', 'PlayerStat', 'Socket', 'SkillSet'].includes(name),
+      ['Skill', 'Gem', 'Item', 'Slot', 'PlayerStat', 'Socket', 'SkillSet', 'ItemSet'].includes(name),
   });
 
   let doc: Record<string, unknown>;
@@ -53,10 +53,19 @@ export function parsePobXml(xml: string): BuildData {
     if (key) statMap.set(key, isNaN(val) ? 0 : val);
   }
 
+  // CombinedDPS is absent in many build types (e.g. DoT/Ignite Chieftain uses
+  // FullDPS which combines hit + DoT sources).  Fall back through the stat
+  // hierarchy to ensure DPS is never shown as 0 when the engine has data.
+  const dps =
+    statMap.get('CombinedDPS') ??
+    statMap.get('FullDPS') ??
+    (statMap.get('TotalDPS') ?? 0) + (statMap.get('TotalDotDPS') ?? 0) ??
+    0;
+
   const stats: BuildStats = {
     life: statMap.get('Life') ?? 0,
     energyShield: statMap.get('EnergyShield') ?? 0,
-    dps: statMap.get('CombinedDPS') ?? 0,
+    dps,
     fireRes: statMap.get('FireResist') ?? 0,
     coldRes: statMap.get('ColdResist') ?? 0,
     lightningRes: statMap.get('LightningResist') ?? 0,
@@ -162,16 +171,32 @@ function parseSkillGroups(skillsSection: Record<string, unknown>): SkillGroup[] 
 
 function parseItems(itemsSection: Record<string, unknown>): Map<ItemSlot, Item> {
   const itemNodes = getArray<Record<string, unknown>>(itemsSection, 'Item');
-  const slotNodes = getArray<Record<string, unknown>>(itemsSection, 'Slot');
+
+  // PoB v2 stores Slot elements inside an <ItemSet> child, not directly under
+  // <Items>.  Fall back to direct Slot children for older export formats.
+  //
+  // Structure: <Items activeItemSet="1"><ItemSet id="1"><Slot .../></ItemSet></Items>
+  let slotNodes = getArray<Record<string, unknown>>(itemsSection, 'Slot');
+  if (slotNodes.length === 0) {
+    const activeSetId = getString(itemsSection, '@_activeItemSet') || '1';
+    const itemSets = getArray<Record<string, unknown>>(itemsSection, 'ItemSet');
+    // Prefer the active set; fall back to the first available.
+    const activeSet =
+      itemSets.find((s) => getString(s, '@_id') === activeSetId) ?? itemSets[0];
+    if (activeSet) {
+      slotNodes = getArray<Record<string, unknown>>(activeSet, 'Slot');
+    }
+  }
 
   // Build itemId → slot map
   const idToSlot = new Map<string, ItemSlot>();
   for (const slot of slotNodes) {
     const name = getString(slot, '@_name');
     const itemId = getString(slot, '@_itemId');
-    if (name && itemId) {
-      idToSlot.set(itemId, name as ItemSlot);
-    }
+    // Skip dead-end slots (id 0, Abyssal sockets, swap set, grafts).
+    if (!name || !itemId || itemId === '0') continue;
+    if (/Abyssal|Swap|Graft/i.test(name)) continue;
+    idToSlot.set(itemId, name as ItemSlot);
   }
 
   const result = new Map<ItemSlot, Item>();
